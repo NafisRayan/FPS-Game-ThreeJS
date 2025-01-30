@@ -1,0 +1,61 @@
+.game-ui {
+    font-family: 'Arial', sans-serif;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+}
+
+.game-over {
+    background: rgba(0,0,0,0.8);
+    display: none;
+}
+
+#ammo-bar {
+    width: 150px;
+    height: 10px;
+    background: rgba(255,255,255,0.3);
+    border: 2px solid white;
+}
+
+#ammo-fill {
+    height: 100%;
+    background: #ff9900;
+    transition: width 0.2s;
+}
+
+#crosshair {
+    transition: transform 0.1s;
+}
+
+#reload-prompt {
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+#health-bar {
+    width: 200px;
+    height: 15px;
+    background: rgba(255,255,255,0.3);
+    border: 2px solid white;
+}
+
+#health-fill {
+    height: 100%;
+    background: #ff3333;
+    transition: width 0.3s;
+}
+
+#mini-map {
+    border: 2px solid white;
+    background: rgba(0,0,0,0.5);
+}
+
+.status-panel {
+    background: rgba(0,0,0,0.5);
+    padding: 10px;
+    border-radius: 5px;
+}
+
+#timer {
+    font-family: monospace;
+    font-size: 1.2em;
+}
