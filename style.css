@@ -1,0 +1,61 @@
+body {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+    font-family: 'Courier New', monospace;
+}
+
+canvas {
+    width: 100%;
+    height: 100%;
+}
+
+#container {
+    position: relative;
+}
+
+.vr-ui {
+    position: fixed;
+    z-index: 100;
+}
+
+/* Cyberpunk UI Styling */
+.cyber-menu-item {
+    position: relative;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    clip-path: polygon(0 0, 100% 0, 100% 70%, 95% 100%, 0 100%);
+}
+
+.cyber-menu-item::before {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    right: 2px;
+    bottom: 2px;
+    border: 1px solid rgba(0, 255, 255, 0.3);
+}
+
+.compass-bar {
+    position: relative;
+    clip-path: polygon(5% 0, 95% 0, 100% 100%, 0 100%);
+}
+
+input::placeholder {
+    color: #00ffff88;
+    font-style: italic;
+}
+
+/* VR Button Enhancement */
+#vrButton {
+    background: rgba(0, 100, 0, 0.8);
+    border: 2px solid #00ff00;
+    text-shadow: 0 0 5px rgba(0, 255, 0, 0.7);
+    transition: all 0.3s ease;
+}
+
+#vrButton:hover {
+    background: rgba(0, 150, 0, 0.9);
+    box-shadow: 0 0 15px rgba(0, 255, 0, 0.5);
+}

@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cube FPS</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .game-ui {
+            font-family: 'Arial', sans-serif;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        .game-over {
+            background: rgba(0,0,0,0.8);
+            display: none;
+        }
+        #ammo-bar {
+            width: 150px;
+            height: 10px;
+            background: rgba(255,255,255,0.3);
+            border: 2px solid white;
+        }
+        #ammo-fill {
+            height: 100%;
+            background: #ff9900;
+            transition: width 0.2s;
+        }
+        #crosshair {
+            transition: transform 0.1s;
+        }
+        #reload-prompt {
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body class="m-0 overflow-hidden">
+    <div class="game-ui fixed top-4 left-4 z-10 space-y-2">
+        <div id="score" class="text-2xl font-bold">Score: 0</div>
+        <div id="round" class="text-xl">Round: 1</div>
+        <div id="ammo-container">
+            <div class="text-sm mb-1">Ammo</div>
+            <div id="ammo-bar">
+                <div id="ammo-fill" style="width: 100%"></div>
+            </div>
+        </div>
+    </div>
+    <div id="reload-prompt" class="fixed top-1/2 mt-8 left-1/2 transform -translate-x-1/2 text-white font-bold">
+        Press R to reload
+    </div>
+    <div id="crosshair" class="fixed top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 border-2 border-white rounded-full"></div>
+    <div id="game-over" class="game-over fixed inset-0 flex items-center justify-center">
+        <div class="text-center">
+            <h2 class="text-4xl mb-4">Game Over!</h2>
+            <p class="text-xl mb-4">Final Score: <span id="final-score">0</span></p>
+            <button onclick="restartGame()" class="bg-white text-black px-6 py-2 rounded-lg hover:bg-gray-200">Play Again</button>
+        </div>
+    </div>
+
+<script>
+let score = 0;
+let round = 1;
+let moveSpeed = 0.15;
+let mouseX = 0, mouseY = 0;
+let target;
+let ammo = 10;
+let maxAmmo = 10;
+let reloading = false;
+let targets = [];
+let isGameOver = false;
+const keys = {};
+
+// Scene setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 0, 75);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+scene.add(ambientLight);
+
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+directionalLight.position.set(-10, 20, 10);
+directionalLight.castShadow = true;
+directionalLight.shadow.camera.near = 0.1;
+directionalLight.shadow.camera.far = 100;
+directionalLight.shadow.camera.left = -20;
+directionalLight.shadow.camera.right = 20;
+directionalLight.shadow.camera.top = 20;
+directionalLight.shadow.camera.bottom = -20;
+directionalLight.shadow.mapSize.width = 2048;
+directionalLight.shadow.mapSize.height = 2048;
+scene.add(directionalLight);
+
+// Materials
+const textureLoader = new THREE.TextureLoader();
+const grassTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/grasslight-big.jpg');
+grassTexture.wrapS = THREE.RepeatWrapping;
+grassTexture.wrapT = THREE.RepeatWrapping;
+grassTexture.repeat.set(10, 10);
+
+// Create ground
+const groundGeometry = new THREE.BoxGeometry(50, 1, 50);
+const groundMaterial = new THREE.MeshPhongMaterial({ 
+    map: grassTexture,
+    bumpMap: grassTexture,
+    bumpScale: 0.1
+});
+const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+ground.position.y = -0.5;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Create walls with improved textures
+function createWall(x, y, z, width, height, depth) {
+    const wall = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, depth),
+        new THREE.MeshPhongMaterial({ 
+            color: 0x8B4513,
+            bumpScale: 0.1,
+            shininess: 5
+        })
+    );
+    wall.position.set(x, y, z);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    scene.add(wall);
+    return wall;
+}
+
+const walls = [
+    createWall(0, 2, -15, 30, 4, 1),
+    createWall(-15, 2, 0, 1, 4, 30),
+    createWall(15, 2, 0, 1, 4, 30),
+    createWall(0, 2, 15, 30, 4, 1)
+];
+
+// Create trees with better materials
+function createTree(x, z) {
+    const trunk = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2, 0.3, 3, 8),
+        new THREE.MeshPhongMaterial({ 
+            color: 0x8B4513,
+            bumpScale: 0.1,
+            shininess: 5
+        })
+    );
+    const leaves = new THREE.Mesh(
+        new THREE.ConeGeometry(1.5, 3, 8),
+        new THREE.MeshPhongMaterial({ 
+            color: 0x228B22,
+            shininess: 10
+        })
+    );
+    trunk.position.set(x, 1.5, z);
+    leaves.position.set(x, 4, z);
+    trunk.castShadow = true;
+    trunk.receiveShadow = true;
+    leaves.castShadow = true;
+    leaves.receiveShadow = true;
+    scene.add(trunk);
+    scene.add(leaves);
+}
+
+// Distribute trees more evenly
+for(let i = 0; i < 15; i++) {
+    const angle = (i / 15) * Math.PI * 2;
+    const radius = Math.random() * 10 + 5;
+    createTree(
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius
+    );
+}
+
+// Create target cubes with improved visuals
+function createTarget() {
+    const targetGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const targetMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0xff0000,
+        emissive: 0x600000,
+        shininess: 50
+    });
+    const newTarget = new THREE.Mesh(targetGeometry, targetMaterial);
+    
+    // Random position avoiding player area
+    let x, z;
+    do {
+        x = Math.random() * 20 - 10;
+        z = Math.random() * 20 - 10;
+    } while (Math.sqrt(x*x + z*z) < 5); // Keep away from player
+    
+    newTarget.position.set(x, 0.5, z);
+    newTarget.castShadow = true;
+    newTarget.receiveShadow = true;
+    scene.add(newTarget);
+    targets.push(newTarget);
+    target = newTarget;
+}
+
+function spawnTargets() {
+    targets.forEach(t => scene.remove(t));
+    targets = [];
+    const numTargets = Math.min(round + 2, 8);
+    for(let i = 0; i < numTargets; i++) {
+        createTarget();
+    }
+}
+
+// Player setup with improved controls
+camera.position.set(0, 1.6, 0);
+
+// Controls
+document.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if(e.key.toLowerCase() === 'r') {
+        reload();
+    }
+});
+document.addEventListener('keyup', (e) => keys[e.key.toLowerCase()] = false);
+
+document.addEventListener('mousemove', (e) => {
+    if(isGameOver) return;
+    mouseX -= e.movementX * 0.002;
+    // Ensure vertical rotation stays within bounds and maintains consistent sensitivity
+    const newMouseY = mouseY + e.movementY * 0.002;
+    mouseY = Math.min(Math.max(newMouseY, -Math.PI/2), Math.PI/2);
+});
+
+document.addEventListener('click', shoot);
+
+// Shooting mechanics
+function shoot() {
+    if(isGameOver) return;
+    
+    if(ammo <= 0) {
+        document.getElementById('reload-prompt').style.opacity = '1';
+        setTimeout(() => document.getElementById('reload-prompt').style.opacity = '0', 1500);
+        return;
+    }
+
+    document.getElementById('crosshair').style.transform = 'scale(1.5)';
+    setTimeout(() => {
+        document.getElementById('crosshair').style.transform = 'scale(1)';
+    }, 50);
+
+    ammo--;
+    updateAmmoUI();
+
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(), camera);
+    const intersects = raycaster.intersectObjects(targets);
+    
+    if(intersects.length > 0) {
+        const hitTarget = intersects[0].object;
+        scene.remove(hitTarget);
+        targets = targets.filter(t => t !== hitTarget);
+        score += 100 * round;
+        document.getElementById('score').textContent = `Score: ${score}`;
+
+        if(targets.length === 0) {
+            round++;
+            document.getElementById('round').textContent = `Round: ${round}`;
+            ammo = maxAmmo;
+            updateAmmoUI();
+            spawnTargets();
+        }
+    }
+}
+
+function reload() {
+    if(reloading || ammo === maxAmmo) return;
+    
+    reloading = true;
+    document.getElementById('reload-prompt').style.opacity = '0';
+    
+    const ammoBar = document.getElementById('ammo-fill');
+    ammoBar.style.transition = 'width 1s';
+    ammoBar.style.width = '0%';
+    
+    setTimeout(() => {
+        ammo = maxAmmo;
+        updateAmmoUI();
+        reloading = false;
+    }, 1000);
+}
+
+function updateAmmoUI() {
+    const percentage = (ammo / maxAmmo) * 100;
+    document.getElementById('ammo-fill').style.width = `${percentage}%`;
+}
+
+// Movement with proper direction handling
+function updatePosition() {
+    if(isGameOver) return;
+    
+    // Get movement input
+    const forward = keys['s'] ? 1 : (keys['w'] ? -1 : 0);  // Swap W and S
+    const right = keys['d'] ? 1 : (keys['a'] ? -1 : 0);
+    
+    if(forward !== 0 || right !== 0) {
+        // Calculate movement direction based on camera rotation
+        const moveAngle = Math.atan2(-right, -forward);  // Invert both axes
+        const totalAngle = mouseX + moveAngle;
+        
+        // Calculate movement vector
+        const speed = moveSpeed * (forward !== 0 && right !== 0 ? 0.707 : 1);
+        const moveX = -Math.sin(totalAngle) * speed;  // Invert X movement
+        const moveZ = -Math.cos(totalAngle) * speed;  // Invert Z movement
+        
+        // Calculate new position
+        const newX = camera.position.x + moveX;
+        const newZ = camera.position.z + moveZ;
+        
+        // Collision check with bounds
+        if(Math.abs(newX) < 14 && Math.abs(newZ) < 14) {
+            camera.position.x = newX;
+            camera.position.z = newZ;
+        }
+    }
+}
+
+function gameOver() {
+    isGameOver = true;
+    document.getElementById('game-over').style.display = 'flex';
+    document.getElementById('final-score').textContent = score;
+    document.exitPointerLock();
+}
+
+function restartGame() {
+    score = 0;
+    round = 1;
+    ammo = maxAmmo;
+    isGameOver = false;
+    camera.position.set(0, 1.6, 0);
+    mouseX = 0;
+    mouseY = 0;
+    document.getElementById('score').textContent = `Score: 0`;
+    document.getElementById('round').textContent = `Round: 1`;
+    document.getElementById('game-over').style.display = 'none';
+    updateAmmoUI();
+    spawnTargets();
+    document.body.requestPointerLock();
+}
+
+// Animation loop with improved target animations
+function animate() {
+    requestAnimationFrame(animate);
+    
+    updatePosition();
+    
+    // Apply rotations in correct order using quaternions
+    camera.quaternion.setFromEuler(new THREE.Euler(0, mouseX, 0, 'YXZ'));
+    camera.rotateX(-mouseY);
+    
+    // Animate targets
+    targets.forEach((t, i) => {
+        t.rotation.y += 0.02;
+        t.position.y = 0.5 + Math.sin(Date.now() * 0.003 + i) * 0.2;
+    });
+    
+    renderer.render(scene, camera);
+}
+
+// Handle window resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// Start game
+document.body.requestPointerLock = document.body.requestPointerLock || document.body.mozRequestPointerLock;
+document.addEventListener('click', () => {
+    if(isGameOver) return;
+    document.body.requestPointerLock();
+});
+
+// Initial setup
+spawnTargets();
+animate();
+</script>
+</body>
+</html>
