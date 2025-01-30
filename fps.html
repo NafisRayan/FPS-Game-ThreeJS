@@ -148,12 +148,15 @@ grassTexture.wrapS = THREE.RepeatWrapping;
 grassTexture.wrapT = THREE.RepeatWrapping;
 grassTexture.repeat.set(10, 10);
 
-// Create ground
+// Create ground with natural colors
 const groundGeometry = new THREE.BoxGeometry(50, 1, 50);
 const groundMaterial = new THREE.MeshPhongMaterial({ 
     map: grassTexture,
     bumpMap: grassTexture,
-    bumpScale: 0.1
+    bumpScale: 0.2,
+    color: 0x567d46,  // Natural grass green color
+    specular: 0x555555,
+    shininess: 5
 });
 const ground = new THREE.Mesh(groundGeometry, groundMaterial);
 ground.position.y = -0.5;
