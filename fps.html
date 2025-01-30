@@ -34,19 +34,52 @@
             opacity: 0;
             transition: opacity 0.3s;
         }
+        #health-bar {
+            width: 200px;
+            height: 15px;
+            background: rgba(255,255,255,0.3);
+            border: 2px solid white;
+        }
+        #health-fill {
+            height: 100%;
+            background: #ff3333;
+            transition: width 0.3s;
+        }
+        #mini-map {
+            border: 2px solid white;
+            background: rgba(0,0,0,0.5);
+        }
+        .status-panel {
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #timer {
+            font-family: monospace;
+            font-size: 1.2em;
+        }
     </style>
 </head>
 <body class="m-0 overflow-hidden">
     <div class="game-ui fixed top-4 left-4 z-10 space-y-2">
-        <div id="score" class="text-2xl font-bold">Score: 0</div>
-        <div id="round" class="text-xl">Round: 1</div>
-        <div id="ammo-container">
-            <div class="text-sm mb-1">Ammo</div>
+        <div class="status-panel">
+            <div id="score" class="text-2xl font-bold">Score: 0</div>
+            <div id="kills" class="text-xl">Kills: 0</div>
+            <div id="round" class="text-xl">Round: 1</div>
+            <div id="timer" class="text-xl">Time: 00:00</div>
+        </div>
+        <div class="status-panel">
+            <div class="text-sm mb-1">Health</div>
+            <div id="health-bar">
+                <div id="health-fill" style="width: 100%"></div>
+            </div>
+            <div class="text-sm mb-1 mt-2">Ammo</div>
             <div id="ammo-bar">
                 <div id="ammo-fill" style="width: 100%"></div>
             </div>
         </div>
     </div>
+    <canvas id="mini-map" class="fixed bottom-4 right-4 z-10" width="150" height="150"></canvas>
     <div id="reload-prompt" class="fixed top-1/2 mt-8 left-1/2 transform -translate-x-1/2 text-white font-bold">
         Press R to reload
     </div>
@@ -71,6 +104,13 @@ let reloading = false;
 let targets = [];
 let isGameOver = false;
 const keys = {};
+
+// Add new game state variables
+let health = 100;
+let kills = 0;
+let gameTime = 0;
+let gameTimer;
+let collisionObjects = [];
 
 // Scene setup
 const scene = new THREE.Scene();
@@ -122,18 +162,24 @@ scene.add(ground);
 
 // Create walls with improved textures
 function createWall(x, y, z, width, height, depth) {
+    const wallTexture = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/brick_diffuse.jpg');
+    const wallBumpMap = textureLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/brick_bump.jpg');
+    
     const wall = new THREE.Mesh(
         new THREE.BoxGeometry(width, height, depth),
         new THREE.MeshPhongMaterial({ 
-            color: 0x8B4513,
-            bumpScale: 0.1,
-            shininess: 5
+            map: wallTexture,
+            bumpMap: wallBumpMap,
+            bumpScale: 0.5,
+            color: 0xaaaaaa,
+            shininess: 10
         })
     );
     wall.position.set(x, y, z);
     wall.castShadow = true;
     wall.receiveShadow = true;
     scene.add(wall);
+    collisionObjects.push(wall);
     return wall;
 }
 
@@ -169,6 +215,8 @@ function createTree(x, z) {
     leaves.receiveShadow = true;
     scene.add(trunk);
     scene.add(leaves);
+    collisionObjects.push(trunk);
+    collisionObjects.push(leaves);
 }
 
 // Distribute trees more evenly
@@ -265,6 +313,8 @@ function shoot() {
         targets = targets.filter(t => t !== hitTarget);
         score += 100 * round;
         document.getElementById('score').textContent = `Score: ${score}`;
+        kills++;
+        document.getElementById('kills').textContent = `Kills: ${kills}`;
 
         if(targets.length === 0) {
             round++;
@@ -317,15 +367,44 @@ function updatePosition() {
         const moveZ = -Math.cos(totalAngle) * speed;  // Invert Z movement
         
         // Calculate new position
-        const newX = camera.position.x + moveX;
-        const newZ = camera.position.z + moveZ;
+        const newPosition = new THREE.Vector3(
+            camera.position.x + moveX,
+            camera.position.y,
+            camera.position.z + moveZ
+        );
         
         // Collision check with bounds
-        if(Math.abs(newX) < 14 && Math.abs(newZ) < 14) {
-            camera.position.x = newX;
-            camera.position.z = newZ;
+        if(Math.abs(newPosition.x) < 14 && Math.abs(newPosition.z) < 14 && !checkCollisions(newPosition)) {
+            camera.position.copy(newPosition);
         }
     }
+}
+
+function checkCollisions(newPosition) {
+    const playerRadius = 0.5;
+    for(let obj of collisionObjects) {
+        const box = new THREE.Box3().setFromObject(obj);
+        const sphere = new THREE.Sphere(newPosition, playerRadius);
+        if(box.intersectsSphere(sphere)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function updateHealth(value) {
+    health = Math.max(0, Math.min(100, health + value));
+    document.getElementById('health-fill').style.width = `${health}%`;
+    if(health <= 0) {
+        gameOver();
+    }
+}
+
+function updateTimer() {
+    gameTime++;
+    const minutes = Math.floor(gameTime / 60).toString().padStart(2, '0');
+    const seconds = (gameTime % 60).toString().padStart(2, '0');
+    document.getElementById('timer').textContent = `Time: ${minutes}:${seconds}`;
 }
 
 function gameOver() {
@@ -333,6 +412,7 @@ function gameOver() {
     document.getElementById('game-over').style.display = 'flex';
     document.getElementById('final-score').textContent = score;
     document.exitPointerLock();
+    clearInterval(gameTimer);
 }
 
 function restartGame() {
@@ -349,6 +429,12 @@ function restartGame() {
     updateAmmoUI();
     spawnTargets();
     document.body.requestPointerLock();
+    health = 100;
+    kills = 0;
+    gameTime = 0;
+    document.getElementById('health-fill').style.width = '100%';
+    document.getElementById('kills').textContent = 'Kills: 0';
+    gameTimer = setInterval(updateTimer, 1000);
 }
 
 // Animation loop with improved target animations
@@ -356,6 +442,7 @@ function animate() {
     requestAnimationFrame(animate);
     
     updatePosition();
+    updateMiniMap();
     
     // Apply rotations in correct order using quaternions
     camera.quaternion.setFromEuler(new THREE.Euler(0, mouseX, 0, 'YXZ'));
@@ -368,6 +455,40 @@ function animate() {
     });
     
     renderer.render(scene, camera);
+}
+
+function updateMiniMap() {
+    const canvas = document.getElementById('mini-map');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 150, 150);
+    
+    // Draw background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, 150, 150);
+    
+    // Draw walls
+    ctx.fillStyle = '#666';
+    walls.forEach(wall => {
+        const x = (wall.position.x + 15) * 5;
+        const z = (wall.position.z + 15) * 5;
+        ctx.fillRect(x - 2, z - 2, 4, 4);
+    });
+    
+    // Draw targets
+    ctx.fillStyle = '#f00';
+    targets.forEach(target => {
+        const x = (target.position.x + 15) * 5;
+        const z = (target.position.z + 15) * 5;
+        ctx.fillRect(x - 2, z - 2, 4, 4);
+    });
+    
+    // Draw player
+    ctx.fillStyle = '#0f0';
+    const playerX = (camera.position.x + 15) * 5;
+    const playerZ = (camera.position.z + 15) * 5;
+    ctx.beginPath();
+    ctx.arc(playerX, playerZ, 3, 0, Math.PI * 2);
+    ctx.fill();
 }
 
 // Handle window resize
@@ -387,6 +508,7 @@ document.addEventListener('click', () => {
 // Initial setup
 spawnTargets();
 animate();
+gameTimer = setInterval(updateTimer, 1000);
 </script>
 </body>
 </html>
