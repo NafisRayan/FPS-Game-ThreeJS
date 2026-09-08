@@ -1,52 +1,25 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cube FPS</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="styles.css">
-</head>
-<body class="m-0 overflow-hidden">
-    <div class="game-ui fixed top-4 left-4 z-10 space-y-2">
-        <div class="status-panel">
-            <div id="score" class="text-2xl font-bold">Score: 0</div>
-            <div id="kills" class="text-xl">Kills: 0</div>
-            <div id="round" class="text-xl">Round: 1</div>
-            <div id="timer" class="text-xl">Time: 00:00</div>
-        </div>
-        <div class="status-panel">
-            <div class="text-sm mb-1">Health</div>
-            <div id="health-bar">
-                <div id="health-fill" style="width: 100%"></div>
-            </div>
-            <div class="text-sm mb-1 mt-2">Ammo</div>
-            <div id="ammo-bar">
-                <div id="ammo-fill" style="width: 100%"></div>
-            </div>
-        </div>
-    </div>
-    <canvas id="mini-map" class="fixed bottom-4 right-4 z-10" width="150" height="150"></canvas>
-    <div id="reload-prompt" class="fixed top-1/2 mt-8 left-1/2 transform -translate-x-1/2 text-white font-bold">
-        Press R to reload
-    </div>
-    <div id="crosshair" class="fixed top-1/2 left-1/2 w-4 h-4 -translate-x-1/2 -translate-y-1/2 border-2 border-white rounded-full"></div>
-    <div id="game-over" class="game-over fixed inset-0 flex items-center justify-center">
-        <div class="text-center">
-            <h2 class="text-4xl mb-4">Game Over!</h2>
-            <p class="text-xl mb-4">Final Score: <span id="final-score">0</span></p>
-            <button onclick="restartGame()" class="bg-white text-black px-6 py-2 rounded-lg hover:bg-gray-200">Play Again</button>
-        </div>
-    </div>
-
-    <!-- Load scripts in correct dependency order -->
-    <script src="js/config.js"></script>
-    <script src="js/scene.js"></script>
-    <script src="js/ui.js"></script>
-    <script src="js/environment.js"></script>
-    <script src="js/mechanics.js"></script>
-    <script src="js/controls.js"></script>
-    <script src="js/game.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#7fa8cc" />
+    <meta name="description" content="OVERGROWTH — a browser-based 3D first-person shooter with a real HDRI sky, PBR grass terrain and Rapier physics, built with React Three Fiber." />
+    <title>OVERGROWTH — 3D FPS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
