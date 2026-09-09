@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { controlsApi } from "./refs";
 import { setMuted } from "./audio";
-import { detectTouchDevice, resetInput } from "./input";
+import { resetInput } from "./input";
 
 export type GamePhase = "menu" | "playing" | "paused" | "dead";
 
@@ -33,6 +33,7 @@ interface GameStore {
   ammo: number;
   reserve: number;
   reloading: boolean;
+  aiming: boolean;
   bestScore: number;
   damageAt: number;
   hitAt: number;
@@ -53,6 +54,7 @@ interface GameStore {
   setAmmo: (n: number) => void;
   setReserve: (n: number) => void;
   setReloading: (b: boolean) => void;
+  setAiming: (b: boolean) => void;
   registerHit: () => void;
   showBanner: (t: string) => void;
   setWave: (n: number) => void;
@@ -79,7 +81,8 @@ function saveBest(n: number) {
 
 export const useGame = create<GameStore>()((set, get) => ({
   phase: "menu",
-  isTouch: detectTouchDevice(),
+  // Defaults false — player picks keyboard/mouse or touch explicitly in the menu before playing
+  isTouch: false,
   runId: 0,
   health: 100,
   score: 0,
@@ -89,6 +92,7 @@ export const useGame = create<GameStore>()((set, get) => ({
   ammo: MAG_SIZE,
   reserve: START_RESERVE,
   reloading: false,
+  aiming: false,
   bestScore: loadBest(),
   damageAt: 0,
   hitAt: 0,
@@ -146,6 +150,7 @@ export const useGame = create<GameStore>()((set, get) => ({
   setAmmo: (n) => set({ ammo: Math.max(0, n) }),
   setReserve: (n) => set({ reserve: Math.max(0, n) }),
   setReloading: (b) => set({ reloading: b }),
+  setAiming: (b) => set({ aiming: b }),
   registerHit: () => set({ hitAt: Date.now() }),
   showBanner: (t) => set({ banner: t, bannerAt: Date.now() }),
   setWave: (n) => set({ wave: n }),
@@ -164,6 +169,7 @@ export const useGame = create<GameStore>()((set, get) => ({
       ammo: MAG_SIZE,
       reserve: START_RESERVE,
       reloading: false,
+      aiming: false,
       damageAt: 0,
       hitAt: 0,
       banner: "",

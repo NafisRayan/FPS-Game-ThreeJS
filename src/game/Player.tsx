@@ -82,6 +82,10 @@ export function Player() {
 
   const keys = useRef<Record<string, boolean>>({});
   const firing = useRef(false);
+  const aimingDownSights = useRef(false);
+  const aimProgress = useRef(0); // 0 (hip) -> 1 (ADS)
+  const reloadStart = useRef(0);
+  const leftHandOffset = useRef<[number, number, number]>([0, 0, 0]);
   const velY = useRef(0);
   const wasGrounded = useRef(false);
   const bobPhase = useRef(0);
@@ -150,6 +154,7 @@ export function Player() {
     if (st.phase !== "playing" || st.reloading) return;
     if (st.ammo >= MAG_SIZE || st.reserve <= 0) return;
     st.setReloading(true);
+    reloadStart.current = performance.now();
     sfx.reload();
     reloadTimeout.current = window.setTimeout(() => {
       const s2 = useGame.getState();
@@ -158,9 +163,9 @@ export function Player() {
       s2.setAmmo(s2.ammo + take);
       s2.setReserve(s2.reserve - take);
       s2.setReloading(false);
+      reloadStart.current = 0;
     }, RELOAD_MS);
   }, []);
-
   /* expose reload to the on-screen touch button */
   useEffect(() => {
     playerApi.reload = reload;
@@ -276,27 +281,42 @@ export function Player() {
     };
     const md = (e: MouseEvent) => {
       const st = useGame.getState();
-      // ignore the mouse events browsers synthesize after a tap
       if (st.isTouch) return;
-      if (e.button === 0 && st.phase === "playing") firing.current = true;
+      if (st.phase !== "playing") return;
+      if (e.button === 0) firing.current = true;
+      if (e.button === 2) {
+        aimingDownSights.current = true;
+        st.setAiming(true);
+      }
     };
-    const mu = () => {
-      firing.current = false;
+    const mu = (e: MouseEvent) => {
+      if (e.button === 0) firing.current = false;
+      if (e.button === 2) {
+        aimingDownSights.current = false;
+        useGame.getState().setAiming(false);
+      }
+    };
+    const contextMenu = (e: MouseEvent) => {
+      e.preventDefault();
     };
     const blur = () => {
       keys.current = {};
       firing.current = false;
+      aimingDownSights.current = false;
+      useGame.getState().setAiming(false);
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("mousedown", md);
     window.addEventListener("mouseup", mu);
+    window.addEventListener("contextmenu", contextMenu);
     window.addEventListener("blur", blur);
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
       window.removeEventListener("mousedown", md);
       window.removeEventListener("mouseup", mu);
+      window.removeEventListener("contextmenu", contextMenu);
       window.removeEventListener("blur", blur);
     };
   }, [gl, reload]);
@@ -323,15 +343,26 @@ export function Player() {
       flashLight.current.intensity = lit ? 13 + Math.random() * 8 : 0;
 
     // recoil relaxation
+    // Aim-down-sights blending: smoothly transition between 0 (hip) and 1 (ADS)
+    const isAiming = (aimingDownSights.current || input.aim) && !st.reloading;
+    aimProgress.current = THREE.MathUtils.lerp(
+      aimProgress.current,
+      isAiming ? 1 : 0,
+      1 - Math.exp(-dt * 18),
+    );
+
+    // Recoil relaxation
     recoil.current = Math.max(0, recoil.current - dt * 6.5);
     const pc = camera as THREE.PerspectiveCamera;
     const reduce = st.settings.reduceMotion;
-    const targetFov = 75 + (reduce ? 0 : recoil.current * 2.2);
+    // ADS zooms FOV in (75 -> 48), tight recoil punch
+    const hipFov = 75 + (reduce ? 0 : recoil.current * 2.2);
+    const adsFov = 48 + (reduce ? 0 : recoil.current * 1.1);
+    const targetFov = THREE.MathUtils.lerp(hipFov, adsFov, aimProgress.current);
     if (Math.abs(pc.fov - targetFov) > 0.01) {
       pc.fov = targetFov;
       pc.updateProjectionMatrix();
     }
-
     if (!body || !controller || !collider) return;
     if (!world.getRigidBody(body.handle) || !world.getCollider(collider.handle)) return;
 
@@ -431,17 +462,72 @@ export function Player() {
     if (st.health < 100 && Date.now() - st.damageAt > 5000)
       st.heal(9 * dt);
 
-    /* ------------------- gun view-model pose ------------------- */
+    /* ------------------- gun view-model pose & animations ------------------- */
     const g = gun.current;
     if (g) {
       g.position.copy(camera.position);
       g.quaternion.copy(camera.quaternion);
+
+      // Procedural Reload Animation:
+      // Phase 1 (0-35%): Tilt gun up & right, left hand drops to pull fresh mag
+      // Phase 2 (35-70%): Left hand slaps fresh mag in, gun rocks slightly down
+      // Phase 3 (70-100%): Racks charging handle / returns to shoulder
+      let reloadRotX = 0;
+      let reloadRotZ = 0;
+      let reloadTransY = 0;
+      let reloadTransZ = 0;
+
+      if (st.reloading && reloadStart.current > 0) {
+        const elapsed = (performance.now() - reloadStart.current) / RELOAD_MS;
+        const p = Math.min(1, Math.max(0, elapsed));
+        if (p < 0.35) {
+          const t = p / 0.35;
+          reloadRotX = -0.32 * Math.sin(t * Math.PI * 0.5);
+          reloadRotZ = 0.22 * Math.sin(t * Math.PI * 0.5);
+          reloadTransY = -0.06 * Math.sin(t * Math.PI * 0.5);
+          leftHandOffset.current = [0, -0.22 * t, 0.12 * t];
+        } else if (p < 0.7) {
+          const t = (p - 0.35) / 0.35;
+          reloadRotX = -0.32 + 0.14 * Math.sin(t * Math.PI);
+          reloadRotZ = 0.22 - 0.1 * t;
+          reloadTransY = -0.06 + 0.04 * t;
+          leftHandOffset.current = [0, -0.22 * (1 - t), 0.12 * (1 - t)];
+        } else {
+          const t = (p - 0.7) / 0.3;
+          reloadRotX = -0.18 * (1 - t);
+          reloadRotZ = 0.12 * (1 - t);
+          reloadTransY = -0.02 * (1 - t);
+          leftHandOffset.current = [0, 0, 0];
+        }
+      } else {
+        leftHandOffset.current = [0, 0, 0];
+      }
+
       const sway = active ? Math.sin(bobPhase.current * 2) * 0.011 : 0;
-      g.translateX(0.13);
-      g.translateY(-0.17 + sway);
-      g.translateZ(-0.3 + recoil.current * 0.06);
-      g.rotateX(recoil.current * 0.06);
-      g.rotateY(-0.03);
+      const swayX = active ? Math.cos(bobPhase.current) * 0.007 : 0;
+
+      // Interpolate between Hip-Fire and Aim-Down-Sights (ADS)
+      // Optical center: sight is at Y=+0.108, so gun Y=-0.108 brings optic exactly to crosshair line of sight
+      const hipPos = { x: 0.14 + swayX, y: -0.15 + sway, z: -0.38 };
+      const adsPos = { x: 0.000, y: -0.108 + sway * 0.2, z: -0.31 };
+
+      const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current);
+      const posY = THREE.MathUtils.lerp(hipPos.y, adsPos.y, aimProgress.current) + reloadTransY;
+      const posZ = THREE.MathUtils.lerp(hipPos.z, adsPos.z, aimProgress.current) + reloadTransZ + recoil.current * 0.05;
+
+      g.translateX(posX);
+      g.translateY(posY);
+      g.translateZ(posZ);
+
+      const hipRotX = recoil.current * 0.06 + reloadRotX;
+      const adsRotX = recoil.current * 0.02 + reloadRotX;
+      const rotX = THREE.MathUtils.lerp(hipRotX, adsRotX, aimProgress.current);
+      const rotY = THREE.MathUtils.lerp(-0.02, 0.0, aimProgress.current);
+      const rotZ = reloadRotZ;
+
+      g.rotateX(rotX);
+      g.rotateY(rotY);
+      if (Math.abs(rotZ) > 0.001) g.rotateZ(rotZ);
     }
   });
 
@@ -453,12 +539,12 @@ export function Player() {
         <Suspense fallback={null}>
           <Rifle />
           <RightHand />
-          <LeftHand />
+          <LeftHand offset={leftHandOffset.current} />
         </Suspense>
 
-        {/* muzzle anchor, flash sprite & dynamic light */}
-        <object3D ref={muzzle} position={[0, 0.012, -0.42]} />
-        <sprite ref={flashSprite} position={[0, 0.012, -0.44]} visible={false}>
+        {/* muzzle anchor, flash sprite & dynamic light aligned with extended tactical barrel */}
+        <object3D ref={muzzle} position={[0, 0.046, -0.62]} />
+        <sprite ref={flashSprite} position={[0, 0.046, -0.64]} visible={false}>
           <spriteMaterial
             map={flashTex}
             color="#ffdca8"
@@ -471,7 +557,7 @@ export function Player() {
         </sprite>
         <pointLight
           ref={flashLight}
-          position={[0, 0.05, -0.5]}
+          position={[0, 0.07, -0.65]}
           color="#ffc37a"
           intensity={0}
           distance={9}

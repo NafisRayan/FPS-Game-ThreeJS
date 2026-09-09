@@ -9,8 +9,8 @@ import {
   Rabbit,
   Pause,
   RotateCcwSquare,
+  Eye,
 } from "lucide-react";
-
 const JOY_RADIUS = 52;
 const DEAD_ZONE = 0.14;
 const LOOK_SENS = 1; // multiplier on top of the base radians-per-pixel
@@ -28,9 +28,9 @@ const LOOK_SENS = 1; // multiplier on top of the base radians-per-pixel
  */
 export function TouchControls() {
   const phase = useGame((s) => s.phase);
+  const isTouch = useGame((s) => s.isTouch);
   const reloading = useGame((s) => s.reloading);
   const ammo = useGame((s) => s.ammo);
-
   const surfaceRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
@@ -41,8 +41,8 @@ export function TouchControls() {
   const lastLook = useRef({ x: 0, y: 0 });
 
   const [sprintOn, setSprintOn] = useState(false);
+  const [aimOn, setAimOn] = useState(false);
   const [firing, setFiring] = useState(false);
-
   /* ------------------------- joystick visuals ------------------------- */
   const showStick = useCallback((x: number, y: number) => {
     const base = baseRef.current;
@@ -144,11 +144,13 @@ export function TouchControls() {
     input.moveZ = 0;
     input.fire = false;
     input.jump = false;
+    input.aim = false;
     setFiring(false);
+    setAimOn(false);
     hideStick();
   }, [phase, hideStick]);
 
-  if (phase !== "playing") return null;
+  if (phase !== "playing" || !isTouch) return null;
 
   /* ----------------------------- buttons ----------------------------- */
   const btn =
@@ -272,7 +274,34 @@ export function TouchControls() {
       >
         <RotateCw size={25} className="text-white" aria-hidden />
       </button>
+      {/* Aim Down Sights (ADS) */}
+      <button
+        type="button"
+        aria-label="Aim Down Sights"
+        aria-pressed={aimOn}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          const next = !aimOn;
+          setAimOn(next);
+          input.aim = next;
+          useGame.getState().setAiming(next);
+          haptic(12);
+        }}
+        className={`${btn} absolute h-[62px] w-[62px] ${
+          aimOn
+            ? "border-cyan-300 bg-cyan-400/40"
+            : "border-white/35 bg-white/12"
+        }`}
+        style={{
+          right: "calc(env(safe-area-inset-right, 0px) + 120px)",
+          bottom: "calc(env(safe-area-inset-bottom, 0px) + 218px)",
+        }}
+      >
+        <Eye size={26} className="text-white" aria-hidden />
+      </button>
 
+      {/* Reload */}
       {/* Sprint (toggle) */}
       <button
         type="button"

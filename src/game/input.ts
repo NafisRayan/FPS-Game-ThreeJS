@@ -18,6 +18,7 @@ export interface InputState {
   jump: boolean;
   sprint: boolean;
   fire: boolean;
+  aim: boolean;
 }
 
 /** Touch-driven state (merged with keyboard state inside <Player/>). */
@@ -29,6 +30,7 @@ export const input: InputState = {
   jump: false,
   sprint: false,
   fire: false,
+  aim: false,
 };
 
 export function resetInput() {
@@ -39,6 +41,7 @@ export function resetInput() {
   input.jump = false;
   input.sprint = false;
   input.fire = false;
+  input.aim = false;
 }
 
 /**

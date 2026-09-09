@@ -19,7 +19,7 @@ export function HUD() {
   const bannerAt = useGame((s) => s.bannerAt);
   const muted = useGame((s) => s.settings.muted);
   const isTouch = useGame((s) => s.isTouch);
-
+  const aiming = useGame((s) => s.aiming);
   if (phase !== "playing") return null;
 
   const hpColor = health > 50 ? "#39ff8e" : health > 25 ? "#ffb347" : "#ff3355";
@@ -43,7 +43,8 @@ export function HUD() {
       )}
 
       {/* ------- crosshair + hit marker ------- */}
-      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+      {/* ------- crosshair + hit marker (hidden while aiming down optical sight) ------- */}
+      <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ${aiming ? "opacity-0" : "opacity-100"}`}>
         <div className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/95 shadow-[0_0_6px_rgba(120,230,255,0.9)]" />
         <div className="absolute left-1/2 top-1/2 h-[10px] w-[2px] -translate-x-1/2 bg-white" style={{ transform: "translate(-50%, -15px)" }} />
         <div className="absolute left-1/2 top-1/2 h-[10px] w-[2px] -translate-x-1/2 bg-white" style={{ transform: "translate(-50%, 5px)" }} />

@@ -12,14 +12,104 @@ import { MODELS } from "./assets";
 /* view-model length, and rotate so the barrel points down -Z.         */
 /* ================================================================== */
 
-export const RIFLE_LENGTH = 0.78;
+export const RIFLE_LENGTH = 0.88;
 
 /** Local-space landmarks on the normalised rifle (metres). */
 export const RIFLE_ANCHORS = {
-  muzzle: new THREE.Vector3(0, 0.012, -RIFLE_LENGTH * 0.52),
-  grip: new THREE.Vector3(0, -0.075, 0.1),
-  handguard: new THREE.Vector3(0, -0.03, -0.19),
+  muzzle: new THREE.Vector3(0, 0.046, -0.62),
+  grip: new THREE.Vector3(0.008, -0.062, 0.04),
+  handguard: new THREE.Vector3(-0.025, 0.005, -0.28),
+  mag: new THREE.Vector3(0, -0.08, -0.06),
 };
+
+/**
+ * Procedural rifle attachments: extends the base AR_4 with an elongated
+ * tactical barrel, muzzle brake, red-dot optic/sight with glowing reticle,
+ * and forward handguard barrel shroud.
+ */
+function GunAttachments() {
+  const sightGlowMat = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        color: "#39ff8e",
+        toneMapped: false,
+      }),
+    [],
+  );
+
+  const gunMetalMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: "#1f2429",
+        roughness: 0.38,
+        metalness: 0.9,
+      }),
+    [],
+  );
+
+  const polymerMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: "#121518",
+        roughness: 0.75,
+        metalness: 0.2,
+      }),
+    [],
+  );
+
+  return (
+    <group position={[0, 0, 0]}>
+      {/* Extended Heavy Fluted Tactical Barrel */}
+      <mesh position={[0, 0.046, -0.44]} rotation={[Math.PI / 2, 0, 0]} material={gunMetalMat} castShadow>
+        <cylinderGeometry args={[0.016, 0.018, 0.32, 16]} />
+      </mesh>
+
+      {/* Tactical Ported Muzzle Brake */}
+      <group position={[0, 0.046, -0.61]}>
+        <mesh rotation={[Math.PI / 2, 0, 0]} material={gunMetalMat} castShadow>
+          <cylinderGeometry args={[0.022, 0.02, 0.065, 12]} />
+        </mesh>
+        <mesh position={[0, 0.02, 0]} material={polymerMat}>
+          <boxGeometry args={[0.01, 0.008, 0.04]} />
+        </mesh>
+      </group>
+
+      {/* Extended Octagonal Handguard Rail */}
+      <mesh position={[0, 0.042, -0.31]} rotation={[Math.PI / 2, 0, 0]} material={polymerMat} castShadow>
+        <cylinderGeometry args={[0.034, 0.036, 0.26, 8]} />
+      </mesh>
+
+      {/* Tactical Reflex / Holographic Optic Sight */}
+      <group position={[0, 0.108, -0.14]}>
+        {/* Mount base on rail */}
+        <mesh position={[0, -0.016, 0]} material={polymerMat} castShadow>
+          <boxGeometry args={[0.034, 0.014, 0.1]} />
+        </mesh>
+        {/* Left post */}
+        <mesh position={[-0.018, 0.016, 0]} material={gunMetalMat}>
+          <boxGeometry args={[0.005, 0.038, 0.07]} />
+        </mesh>
+        {/* Right post */}
+        <mesh position={[0.018, 0.016, 0]} material={gunMetalMat}>
+          <boxGeometry args={[0.005, 0.038, 0.07]} />
+        </mesh>
+        {/* Top bar */}
+        <mesh position={[0, 0.034, 0]} material={gunMetalMat}>
+          <boxGeometry args={[0.038, 0.005, 0.07]} />
+        </mesh>
+        {/* Glowing Holographic Dot / Reticle - visible through the hollow frame */}
+        <mesh position={[0, 0.016, 0]}>
+          <sphereGeometry args={[0.004, 16, 16]} />
+          <primitive object={sightGlowMat} attach="material" />
+        </mesh>
+        <mesh position={[0, 0.016, 0]}>
+          <ringGeometry args={[0.009, 0.012, 24]} />
+          <primitive object={sightGlowMat} attach="material" />
+        </mesh>
+      </group>
+    </group>
+  );
+}
 
 export function Rifle() {
   const { scene } = useGLTF(MODELS.rifle);
@@ -38,37 +128,39 @@ export function Rifle() {
       const mat = src.clone();
       const name = src.name || "";
       if (name === "Main") {
-        mat.color.set("#37414a"); // receiver / body
+        mat.color.set("#2c333a"); // receiver / body
         mat.metalness = 0.85;
-        mat.roughness = 0.42;
+        mat.roughness = 0.38;
       } else if (name === "Black") {
-        mat.color.set("#14171b"); // polymer furniture
+        mat.color.set("#121518"); // polymer furniture
         mat.metalness = 0.25;
-        mat.roughness = 0.72;
+        mat.roughness = 0.7;
       } else if (name === "White") {
-        mat.color.set("#8d949c"); // bare steel accents
+        mat.color.set("#7d848c"); // steel accents
         mat.metalness = 0.95;
-        mat.roughness = 0.3;
+        mat.roughness = 0.28;
       } else {
-        mat.color.set("#20262c"); // grey
+        mat.color.set("#1c2024");
         mat.metalness = 0.8;
-        mat.roughness = 0.5;
+        mat.roughness = 0.45;
       }
       mat.envMapIntensity = 1.1;
       m.material = mat;
     });
 
-    // Normalise: centre on origin, uniform-scale to RIFLE_LENGTH,
-    // then yaw +90° so the +X muzzle axis becomes -Z (camera forward).
+    // Re-anchor rifle at its grip point so the whole barrel & receiver
+    // project forward cleanly in front of the camera near plane.
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
     box.getSize(size);
     box.getCenter(center);
-    const scale = RIFLE_LENGTH / Math.max(size.x, 0.0001);
+    const scale = (RIFLE_LENGTH * 0.72) / Math.max(size.x, 0.0001);
+
+    const gripPivotX = box.min.x + size.x * 0.38;
 
     const inner = new THREE.Group();
-    root.position.sub(center);
+    root.position.set(-gripPivotX, -center.y - 0.02, -center.z);
     inner.add(root);
     inner.scale.setScalar(scale);
 
@@ -81,7 +173,12 @@ export function Rifle() {
     return holder;
   }, [scene]);
 
-  return <primitive object={model} />;
+  return (
+    <group>
+      <primitive object={model} />
+      <GunAttachments />
+    </group>
+  );
 }
 
 /* ================================================================== */
@@ -211,65 +308,78 @@ function Sleeve({ length = 0.26 }: { length?: number }) {
 /**
  * Right hand wrapped around the pistol grip.
  * Rest pose: fingers +Y, palm +Z, thumb +X.
- * Target:    fingers point forward/down, palm faces left (-X).
+ * Aligned precisely with the grip anchor at the new pivot.
  */
-export function RightHand() {
+export function RightHand({ offset = [0, 0, 0] }: { offset?: [number, number, number] }) {
   const { scene } = useGLTF(MODELS.handR);
   const hand = useMemo(() => buildHand(scene, "R", true), [scene]);
 
   const quat = useMemo(() => {
     const q = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(0, 1, 0),
-      -Math.PI / 2,
+      -Math.PI / 2 + 0.08,
     );
     q.premultiply(
       new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(1, 0, 0),
-        -1.37,
+        -1.32,
       ),
     );
     return q;
   }, []);
 
   return (
-    <group position={[0.012, -0.132, 0.196]} quaternion={quat} scale={1.02}>
+    <group
+      position={[
+        RIFLE_ANCHORS.grip.x + offset[0],
+        RIFLE_ANCHORS.grip.y + offset[1],
+        RIFLE_ANCHORS.grip.z + offset[2],
+      ]}
+      quaternion={quat}
+      scale={0.92}
+    >
       <primitive object={hand} />
-      <group rotation={[0, 0, 0]}>
-        <Sleeve length={0.3} />
-      </group>
+      <Sleeve length={0.32} />
     </group>
   );
 }
 
 /**
- * Left hand supporting the handguard from below-left.
- * Target: fingers point right (+X), palm faces up/right.
+ * Left hand supporting the extended handguard from below-left.
  */
-export function LeftHand() {
+export function LeftHand({ offset = [0, 0, 0] }: { offset?: [number, number, number] }) {
   const { scene } = useGLTF(MODELS.handL);
   const hand = useMemo(() => buildHand(scene, "L", false), [scene]);
 
   const quat = useMemo(() => {
     const q = new THREE.Quaternion().setFromAxisAngle(
       new THREE.Vector3(0, 1, 0),
-      -0.75,
+      -0.45,
     );
     q.premultiply(
       new THREE.Quaternion().setFromAxisAngle(
         new THREE.Vector3(0, 0, 1),
-        -Math.PI / 2 + 0.15,
+        -Math.PI / 2 + 0.35,
       ),
     );
     q.premultiply(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.2),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.38),
     );
     return q;
   }, []);
 
   return (
-    <group position={[-0.118, -0.108, -0.158]} quaternion={quat} scale={1.02}>
+    <group
+      position={[
+        RIFLE_ANCHORS.handguard.x + offset[0],
+        RIFLE_ANCHORS.handguard.y + offset[1],
+        RIFLE_ANCHORS.handguard.z + offset[2],
+      ]}
+      quaternion={quat}
+      scale={0.92}
+    >
       <primitive object={hand} />
-      <Sleeve length={0.3} />
+      <Sleeve length={0.28} />
     </group>
   );
 }

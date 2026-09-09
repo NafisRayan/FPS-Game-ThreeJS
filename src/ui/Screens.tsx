@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { useGame } from "../game/store";
-import { detectTouchDevice } from "../game/input";
 import { controlsApi } from "../game/refs";
 import { sfx } from "../game/audio";
 import { CREDITS } from "../game/assets";
@@ -68,22 +67,41 @@ function SettingRow({
   );
 }
 
-/** Lets players force the on-screen sticks on/off if detection guesses wrong. */
-function TouchSchemeRow() {
+/** Explicit control scheme selector shown on menu & pause screens. */
+function ControlSchemeSelector() {
   const isTouch = useGame((s) => s.isTouch);
   const setIsTouch = useGame((s) => s.setIsTouch);
+
   return (
-    <SettingRow
-      label="Touch controls"
-      desc={
-        detectTouchDevice()
-          ? "Auto-detected: touch device"
-          : "On-screen stick & buttons instead of mouse + keys"
-      }
-      icon={<Smartphone size={15} />}
-      checked={isTouch}
-      onToggle={() => setIsTouch(!isTouch)}
-    />
+    <div className="mt-4 flex w-full max-w-sm flex-col gap-1.5 text-left">
+      <span className="text-[10px] font-semibold tracking-[0.35em] text-slate-400">
+        INPUT METHOD
+      </span>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setIsTouch(false)}
+          className={`flex items-center justify-center gap-2 rounded border px-3 py-2.5 text-xs font-semibold tracking-wider transition-all ${
+            !isTouch
+              ? "border-cyan-400 bg-cyan-400/20 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+              : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:text-slate-200"
+          }`}
+        >
+          <Crosshair size={14} aria-hidden /> Mouse + Keys
+        </button>
+        <button
+          type="button"
+          onClick={() => setIsTouch(true)}
+          className={`flex items-center justify-center gap-2 rounded border px-3 py-2.5 text-xs font-semibold tracking-wider transition-all ${
+            isTouch
+              ? "border-cyan-400 bg-cyan-400/20 text-cyan-100 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+              : "border-white/10 bg-white/[0.04] text-slate-400 hover:border-white/20 hover:text-slate-200"
+          }`}
+        >
+          <Smartphone size={14} aria-hidden /> Touch Screen
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -109,7 +127,7 @@ function SettingsPanel() {
         checked={settings.reduceBloom}
         onToggle={() => toggleSetting("reduceBloom")}
       />
-      <TouchSchemeRow />
+      {/* Control scheme selector is placed prominently above */}
       <SettingRow
         label="Low detail"
         desc="Fewer grass blades — helps on weaker GPUs"
@@ -132,28 +150,27 @@ function SettingsPanel() {
 function ControlLegend({ isTouch }: { isTouch: boolean }) {
   if (isTouch) {
     return (
-      <div className="mt-7 grid w-full max-w-sm grid-cols-2 gap-x-6 gap-y-2 text-xs text-slate-300">
+      <div className="mt-5 grid w-full max-w-sm grid-cols-2 gap-x-6 gap-y-2 text-xs text-slate-300">
         <span>🕹️ Left thumb — move</span>
         <span>👆 Right drag — look</span>
         <span>🎯 Fire button — shoot</span>
+        <span>👁️ Eye button — ADS aim</span>
         <span>⤴️ Arrows — jump</span>
         <span>🔄 Reload button</span>
-        <span>⏸️ Top button — pause</span>
       </div>
     );
   }
   return (
-    <div className="mt-7 grid grid-cols-2 gap-x-10 gap-y-2 text-xs text-slate-400 md:flex md:gap-8">
+    <div className="mt-5 grid grid-cols-2 gap-x-8 gap-y-2 text-xs text-slate-400 md:flex md:gap-6">
       <span><kbd>WASD</kbd> move</span>
       <span><kbd>SHIFT</kbd> sprint</span>
       <span><kbd>SPACE</kbd> jump</span>
-      <span><kbd>CLICK</kbd> fire</span>
+      <span><kbd>LMB</kbd> fire</span>
+      <span><kbd>RMB</kbd> aim (ADS)</span>
       <span><kbd>R</kbd> reload</span>
-      <span><kbd>ESC</kbd> pause</span>
     </div>
   );
 }
-
 /* ------------------------------------------------------------------ */
 /* Start screen                                                        */
 /* ------------------------------------------------------------------ */
@@ -190,9 +207,8 @@ function StartScreen() {
           <Crosshair size={18} aria-hidden />
           {isTouch ? "TAP TO PLAY" : "CLICK TO PLAY"}
         </button>
-
+        <ControlSchemeSelector />
         <ControlLegend isTouch={isTouch} />
-
         <SettingsPanel />
 
         {best > 0 && (
