@@ -12,6 +12,11 @@ export interface Settings {
   lowDetail: boolean;
 }
 
+/** Runtime render-quality tier. "auto" reacts to measured FPS via
+ *  <PerformanceMonitor/>; "high"/"low" pin the tier so a manual choice
+ *  (or the "Low detail" toggle) always wins over the auto-downgrade. */
+export type Quality = "high" | "low";
+
 export const MAG_SIZE = 30;
 export const START_RESERVE = 120;
 
@@ -34,6 +39,9 @@ interface GameStore {
   banner: string;
   bannerAt: number;
   settings: Settings;
+  /** Quality tier picked automatically from measured FPS (see
+   *  <PerformanceMonitor/> in App.tsx). Overridden by settings.lowDetail. */
+  autoQuality: Quality;
 
   setPhase: (p: GamePhase) => void;
   setIsTouch: (b: boolean) => void;
@@ -48,6 +56,7 @@ interface GameStore {
   registerHit: () => void;
   showBanner: (t: string) => void;
   setWave: (n: number) => void;
+  setAutoQuality: (q: Quality) => void;
   restart: () => void;
   toggleSetting: (k: keyof Settings) => void;
 }
@@ -91,6 +100,7 @@ export const useGame = create<GameStore>()((set, get) => ({
     muted: false,
     lowDetail: false,
   },
+  autoQuality: "high",
 
   setPhase: (p) => set({ phase: p }),
 
@@ -139,6 +149,7 @@ export const useGame = create<GameStore>()((set, get) => ({
   registerHit: () => set({ hitAt: Date.now() }),
   showBanner: (t) => set({ banner: t, bannerAt: Date.now() }),
   setWave: (n) => set({ wave: n }),
+  setAutoQuality: (q) => set({ autoQuality: q }),
 
   restart: () => {
     resetInput();

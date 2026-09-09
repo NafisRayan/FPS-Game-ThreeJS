@@ -122,8 +122,111 @@ function makeBladeGeometry(): THREE.BufferGeometry {
 const GRASS_TIP = new THREE.Color("#b9d16a");
 const GRASS_BASE = new THREE.Color("#3f6326");
 
-function GrassField({ count }: { count: number }) {
+const GRASS_CHUNKS = 6; // 6x6 grid — enables real frustum culling per cell
+const GRASS_EXTENT = ARENA_HALF + 14; // matches the old single-mesh scatter radius
+
+interface GrassInstance {
+  x: number;
+  z: number;
+  rotX: number;
+  rotY: number;
+  rotZ: number;
+  sx: number;
+  sy: number;
+  color: THREE.Color;
+}
+
+/** Scatter blades once, bucketed into a spatial grid so each cell can be
+ *  its own frustum-culled InstancedMesh instead of one uncullable mega-mesh. */
+function scatterGrass(count: number): GrassInstance[][] {
+  const rnd = mulberry32(1337);
+  const extent = GRASS_EXTENT;
+  const cellSize = (extent * 2) / GRASS_CHUNKS;
+  const chunks: GrassInstance[][] = Array.from(
+    { length: GRASS_CHUNKS * GRASS_CHUNKS },
+    () => [],
+  );
+  const color = new THREE.Color();
+  let i = 0;
+  let guard = 0;
+
+  while (i < count && guard++ < count * 8) {
+    const x = (rnd() * 2 - 1) * extent;
+    const z = (rnd() * 2 - 1) * extent;
+    // thin out toward the edges for a natural falloff
+    const d = Math.max(Math.abs(x), Math.abs(z)) / extent;
+    if (rnd() < d * d * 0.75) continue;
+    if (blocked(x, z, 0.4)) continue;
+
+    color.copy(GRASS_BASE).lerp(GRASS_TIP, rnd() * 0.85);
+    color.offsetHSL((rnd() - 0.5) * 0.03, 0, (rnd() - 0.5) * 0.06);
+
+    const cx = Math.min(
+      GRASS_CHUNKS - 1,
+      Math.max(0, Math.floor((x + extent) / cellSize)),
+    );
+    const cz = Math.min(
+      GRASS_CHUNKS - 1,
+      Math.max(0, Math.floor((z + extent) / cellSize)),
+    );
+    chunks[cz * GRASS_CHUNKS + cx].push({
+      x,
+      z,
+      rotX: (rnd() - 0.5) * 0.22,
+      rotY: rnd() * Math.PI * 2,
+      rotZ: (rnd() - 0.5) * 0.22,
+      sx: 0.9 + rnd() * 0.4,
+      sy: 0.7 + rnd() * 0.85,
+      color: color.clone(),
+    });
+    i++;
+  }
+  return chunks;
+}
+
+/** One grid cell's worth of blades — a real InstancedMesh with a tight
+ *  bounding sphere, so the renderer can skip it entirely when off-screen. */
+function GrassChunk({
+  geometry,
+  material,
+  instances,
+}: {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material;
+  instances: GrassInstance[];
+}) {
   const mesh = useRef<THREE.InstancedMesh>(null);
+
+  useLayoutEffect(() => {
+    const m = mesh.current;
+    if (!m) return;
+    const dummy = new THREE.Object3D();
+    for (let i = 0; i < instances.length; i++) {
+      const g = instances[i];
+      dummy.position.set(g.x, 0, g.z);
+      dummy.rotation.set(g.rotX, g.rotY, g.rotZ);
+      dummy.scale.set(g.sx, g.sy, 1);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+      m.setColorAt(i, g.color);
+    }
+    m.instanceMatrix.needsUpdate = true;
+    if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    m.computeBoundingSphere();
+  }, [instances]);
+
+  if (instances.length === 0) return null;
+
+  return (
+    <instancedMesh
+      ref={mesh}
+      args={[geometry, material, instances.length]}
+      receiveShadow
+    />
+  );
+}
+
+function GrassField({ count }: { count: number }) {
   const uniforms = useRef<{ uTime: { value: number } }>({ uTime: { value: 0 } });
 
   const geometry = useMemo(() => makeBladeGeometry(), []);
@@ -165,61 +268,25 @@ function GrassField({ count }: { count: number }) {
     return m;
   }, []);
 
-  /* Scatter blades once, with density falling off away from the arena. */
-  useLayoutEffect(() => {
-    const m = mesh.current;
-    if (!m) return;
-    const rnd = mulberry32(1337);
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-    let i = 0;
-    let guard = 0;
-
-    while (i < count && guard++ < count * 8) {
-      const x = (rnd() * 2 - 1) * (ARENA_HALF + 14);
-      const z = (rnd() * 2 - 1) * (ARENA_HALF + 14);
-      // thin out toward the edges for a natural falloff
-      const d = Math.max(Math.abs(x), Math.abs(z)) / (ARENA_HALF + 14);
-      if (rnd() < d * d * 0.75) continue;
-      if (blocked(x, z, 0.4)) continue;
-
-      dummy.position.set(x, 0, z);
-      dummy.rotation.set(
-        (rnd() - 0.5) * 0.22,
-        rnd() * Math.PI * 2,
-        (rnd() - 0.5) * 0.22,
-      );
-      const s = 0.7 + rnd() * 0.85;
-      dummy.scale.set(0.9 + rnd() * 0.4, s, 1);
-      dummy.updateMatrix();
-      m.setMatrixAt(i, dummy.matrix);
-
-      color.copy(GRASS_BASE).lerp(GRASS_TIP, rnd() * 0.85);
-      color.offsetHSL((rnd() - 0.5) * 0.03, 0, (rnd() - 0.5) * 0.06);
-      m.setColorAt(i, color);
-      i++;
-    }
-    m.count = i;
-    m.instanceMatrix.needsUpdate = true;
-    if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    m.boundingSphere = new THREE.Sphere(
-      new THREE.Vector3(),
-      (ARENA_HALF + 20) * 1.5,
-    );
-    m.frustumCulled = false;
-  }, [count]);
+  const chunks = useMemo(() => scatterGrass(count), [count]);
 
   useFrame((state) => {
     uniforms.current.uTime.value = state.clock.elapsedTime;
   });
 
   return (
-    <instancedMesh
-      ref={mesh}
-      args={[geometry, material, count]}
-      receiveShadow
-      frustumCulled={false}
-    />
+    <group>
+      {chunks.map((instances, i) =>
+        instances.length > 0 ? (
+          <GrassChunk
+            key={i}
+            geometry={geometry}
+            material={material}
+            instances={instances}
+          />
+        ) : null,
+      )}
+    </group>
   );
 }
 
@@ -284,9 +351,13 @@ function Scenery() {
   const s = useScatter();
   return (
     <group>
-      <InstancedModel url={MODELS.treeA} transforms={s.forestA} castShadow />
-      <InstancedModel url={MODELS.treeB} transforms={s.forestB} castShadow />
-      <InstancedModel url={MODELS.treeC} transforms={s.forestC} castShadow />
+      {/* Perimeter tree line sits well outside the tightened shadow
+          frustum (see App.tsx) and is rarely seen up close, so it skips
+          the shadow pass entirely — halves the InstancedMesh draw cost
+          for 340 trees. */}
+      <InstancedModel url={MODELS.treeA} transforms={s.forestA} />
+      <InstancedModel url={MODELS.treeB} transforms={s.forestB} />
+      <InstancedModel url={MODELS.treeC} transforms={s.forestC} />
       <InstancedModel url={MODELS.bush} transforms={s.bushes} castShadow receiveShadow />
       <InstancedModel url={MODELS.bushBerry} transforms={s.berries} castShadow receiveShadow />
       <InstancedModel url={MODELS.rock} transforms={s.rocks} castShadow receiveShadow />
@@ -300,10 +371,12 @@ function Scenery() {
 
 export function Terrain() {
   const lowDetail = useGame((st) => st.settings.lowDetail);
+  const autoQuality = useGame((st) => st.autoQuality);
+  const low = lowDetail || autoQuality === "low";
   return (
     <group>
       <Ground />
-      <GrassField count={lowDetail ? 9000 : 26000} />
+      <GrassField count={low ? 9000 : 26000} />
       <Scenery />
     </group>
   );

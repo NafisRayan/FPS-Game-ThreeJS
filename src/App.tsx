@@ -2,7 +2,12 @@ import { Component, Suspense, useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useThree } from "@react-three/fiber";
-import { PointerLockControls, Environment } from "@react-three/drei";
+import {
+  PointerLockControls,
+  Environment,
+  PerformanceMonitor,
+  AdaptiveDpr,
+} from "@react-three/drei";
 import { Physics } from "@react-three/rapier";
 import type { PointerLockControls as PointerLockControlsImpl } from "three-stdlib";
 import { useGame } from "./game/store";
@@ -102,12 +107,16 @@ function LockController() {
 export default function App() {
   const phase = useGame((s) => s.phase);
   const runId = useGame((s) => s.runId);
+  const lowDetail = useGame((s) => s.settings.lowDetail);
+  const autoQuality = useGame((s) => s.autoQuality);
+  const setAutoQuality = useGame((s) => s.setAutoQuality);
+  const low = lowDetail || autoQuality === "low";
 
   return (
     <div className="fixed inset-0 select-none overflow-hidden bg-[#05070d]">
       <Canvas
         shadows="percentage"
-        dpr={[1, 1.75]}
+        dpr={[1, low ? 1 : 1.75]}
         frameloop="always"
         gl={{
           antialias: false,
@@ -121,6 +130,17 @@ export default function App() {
           position: [SPAWN.x, SPAWN.y + 0.67, SPAWN.z],
         }}
       >
+        {/* Watches real frame timings and downgrades the auto quality tier
+            (grass density, bloom cost, shadow map) when the GPU can't keep
+            up — independent of the user-facing "Low detail" toggle. Only
+            steps back down; the manual toggle is the only way to force a
+            downgrade instantly. */}
+        <PerformanceMonitor
+          onDecline={() => setAutoQuality("low")}
+          onIncline={() => setAutoQuality("high")}
+        />
+        <AdaptiveDpr />
+
         <color attach="background" args={["#9dc4e8"]} />
         {/* warm aerial haze that blends the tree line into the sky */}
         <fog attach="fog" args={["#bcd3e6", 70, 235]} />
@@ -133,14 +153,14 @@ export default function App() {
           intensity={2.6}
           color="#fff3dc"
           castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
-          shadow-camera-left={-60}
-          shadow-camera-right={60}
-          shadow-camera-top={60}
-          shadow-camera-bottom={-60}
+          shadow-mapSize-width={low ? 1024 : 2048}
+          shadow-mapSize-height={low ? 1024 : 2048}
+          shadow-camera-left={-48}
+          shadow-camera-right={48}
+          shadow-camera-top={48}
+          shadow-camera-bottom={-48}
           shadow-camera-near={1}
-          shadow-camera-far={200}
+          shadow-camera-far={130}
           shadow-normalBias={0.035}
           shadow-bias={-0.0002}
         />
