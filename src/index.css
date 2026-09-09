@@ -62,9 +62,7 @@ kbd {
 }
 
 .title-glow {
-  text-shadow:
-    0 0 24px rgba(64, 224, 255, 0.45),
-    0 0 90px rgba(64, 224, 255, 0.22);
+  text-shadow: 0 0 16px rgba(64, 224, 255, 0.45);
 }
 
 .red-glow {
@@ -114,15 +112,16 @@ kbd {
 
 /* wave banner */
 @keyframes kBanner {
-  0% { opacity: 0; letter-spacing: 0.55em; transform: scale(1.05); }
+  0% { opacity: 0; transform: scale(1.05); }
   14% { opacity: 1; transform: scale(1); }
-  82% { opacity: 1; }
-  100% { opacity: 0; letter-spacing: 0.3em; }
+  82% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.98); }
 }
 .banner-anim {
-  animation: kBanner 2.5s ease forwards;
+  animation: kBanner 2.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
 }
-
 /* controls hint fade */
 @keyframes kHint {
   0%, 70% { opacity: 0.85; }

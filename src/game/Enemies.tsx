@@ -79,6 +79,7 @@ export function Enemies() {
   const meshes = useRef(new Map<number, THREE.Object3D>()).current;
   const rts = useRef(new Map<number, Rt>()).current;
   const bursts = useRef<Burst[]>([]);
+  const nextWaveTimer = useRef<number | null>(null);
 
   const remove = (id: number, byPlayer: boolean) => {
     const rt = rts.get(id);
@@ -117,6 +118,7 @@ export function Enemies() {
     };
     return () => {
       enemyApi.current = null;
+      if (nextWaveTimer.current) window.clearTimeout(nextWaveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -130,6 +132,8 @@ export function Enemies() {
   /* (Re)spawn whenever the wave counter changes. */
   useEffect(() => {
     const list = spawnWave(wave);
+    rts.clear();
+    meshes.clear();
     for (const e of list) {
       rts.set(e.id, {
         pos: new THREE.Vector3(e.x, ENEMY_Y, e.z),
@@ -139,10 +143,11 @@ export function Enemies() {
       });
     }
     setEnemies(list);
+    useGame.getState().setEnemiesLeft(list.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wave]);
 
-  /* Wave-clear detection → next wave. */
+  /* Wave-clear detection -> next wave transition. */
   useEffect(() => {
     useGame.getState().setEnemiesLeft(enemies.length);
     if (enemies.length !== 0) return;
@@ -150,7 +155,9 @@ export function Enemies() {
     if (st.phase !== "playing" && st.phase !== "paused") return;
     st.showBanner("WAVE CLEARED  ·  +250");
     st.addScore(250);
-    const t = window.setTimeout(() => {
+
+    if (nextWaveTimer.current) window.clearTimeout(nextWaveTimer.current);
+    nextWaveTimer.current = window.setTimeout(() => {
       const s2 = useGame.getState();
       if (s2.phase !== "playing" && s2.phase !== "paused") return;
       const nw = s2.wave + 1;
@@ -159,7 +166,10 @@ export function Enemies() {
       s2.showBanner(`WAVE ${nw}`);
       sfx.wave();
     }, 2100);
-    return () => window.clearTimeout(t);
+
+    return () => {
+      if (nextWaveTimer.current) window.clearTimeout(nextWaveTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enemies.length]);
 

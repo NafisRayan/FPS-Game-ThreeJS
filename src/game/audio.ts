@@ -120,9 +120,21 @@ export const sfx = {
     window.setTimeout(() => tone("square", 520, 520, 0.07, 0.2), 800);
   },
   wave() {
-    [392, 523, 659, 784].forEach((f, i) =>
-      window.setTimeout(() => tone("triangle", f, f, 0.14, 0.2), i * 85),
-    );
+    const c = ac();
+    if (!c || !master || muted) return;
+    const baseTime = c.currentTime;
+    [392, 523, 659, 784].forEach((f, i) => {
+      const t = baseTime + i * 0.085;
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(f, t);
+      envelope(g, t, 0.14, 0.18);
+      o.connect(g);
+      g.connect(master!);
+      o.start(t);
+      o.stop(t + 0.18);
+    });
   },
   ui() {
     tone("triangle", 600, 600, 0.05, 0.12);
