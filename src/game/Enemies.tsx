@@ -13,22 +13,68 @@ import {
 import { sfx } from "./audio";
 
 /* ------------------------------------------------------------------ */
-/* Types & wave generation                                             */
+/* Types & Zombie Archetype Wave Generation                           */
 /* ------------------------------------------------------------------ */
 
-const COLORS = ["#ff3b5c", "#39ff8e", "#38b6ff"]; // red / green / blue
-const ENEMY_Y = 0.95;
-const CONTACT_DIST = 1.45;
-const CONTACT_DAMAGE = 14;
+export type ZombieType = "walker" | "runner" | "tank";
+
+const ZOMBIE_PROFILES: Record<
+  ZombieType,
+  {
+    baseSpeed: number;
+    hp: number;
+    scale: number;
+    skinColor: string;
+    shirtColor: string;
+    pantsColor: string;
+    eyeColor: string;
+    damage: number;
+  }
+> = {
+  walker: {
+    baseSpeed: 1.8,
+    hp: 1,
+    scale: 1.0,
+    skinColor: "#5e8255", // rotting greenish-grey
+    shirtColor: "#4a5b6c", // tattered blue
+    pantsColor: "#2d333b", // dark slate
+    eyeColor: "#ff2222", // piercing red
+    damage: 14,
+  },
+  runner: {
+    baseSpeed: 3.2,
+    hp: 1,
+    scale: 0.9,
+    skinColor: "#739462", // pale sickly green
+    shirtColor: "#802828", // ripped bloody crimson
+    pantsColor: "#3a342d", // brown
+    eyeColor: "#ffee00", // feral yellow
+    damage: 10,
+  },
+  tank: {
+    baseSpeed: 1.2,
+    hp: 3,
+    scale: 1.35,
+    skinColor: "#4d6948", // bruised dark green
+    shirtColor: "#5a3d31", // dirty ragged brown
+    pantsColor: "#1f2421", // black
+    eyeColor: "#ff6600", // fiery amber
+    damage: 25,
+  },
+};
+
+const ENEMY_Y = 0.0; // Zombies walk on the ground (feet on Y=0)
+const CONTACT_DIST = 1.35;
 
 interface EnemyData {
   id: number;
   x: number;
   z: number;
-  color: string;
+  type: ZombieType;
   speed: number;
   phase: number;
   hp: number;
+  color: string;
 }
 
 /** Per-enemy mutable runtime state (never touches React state). */
@@ -37,6 +83,7 @@ interface Rt {
   hp: number;
   flashUntil: number;
   color: string;
+  type: ZombieType;
 }
 
 interface Burst {
@@ -47,23 +94,40 @@ interface Burst {
 let nextId = 1;
 
 function spawnWave(wave: number): EnemyData[] {
-  const count = Math.min(4 + wave, 10); // 5 – 10 enemies
+  const count = Math.min(4 + wave, 12); // 5 – 12 zombies per wave
   const list: EnemyData[] = [];
   let guard = 0;
+
   while (list.length < count && guard++ < 600) {
     const x = (Math.random() * 2 - 1) * (ARENA_HALF - 4);
     const z = (Math.random() * 2 - 1) * (ARENA_HALF - 4);
     if (!isSpawnClear(x, z)) continue;
+
     const id = nextId++;
+    // Wave composition:
+    // Wave 1: Mostly Walkers
+    // Wave 2+: Fast Runners appear
+    // Wave 3+: Heavy Tanks appear (multi-HP behemoths)
+    let type: ZombieType = "walker";
+    const roll = Math.random();
+    if (wave >= 3 && roll < 0.25) {
+      type = "tank";
+    } else if (wave >= 2 && roll < 0.55) {
+      type = "runner";
+    }
+
+    const profile = ZOMBIE_PROFILES[type];
+    const speed = profile.baseSpeed + wave * 0.12 + Math.random() * 0.35;
+
     list.push({
       id,
       x,
       z,
-      color: COLORS[(Math.random() * COLORS.length) | 0],
-      speed: 1.5 + wave * 0.18 + Math.random() * 0.5,
+      type,
+      speed,
       phase: Math.random() * Math.PI * 2,
-      // from wave 3, every third hostile is armoured (2 hp)
-      hp: wave >= 3 && id % 3 === 0 ? 2 : 1,
+      hp: profile.hp,
+      color: profile.shirtColor,
     });
   }
   return list;
@@ -91,11 +155,12 @@ export function Enemies() {
     if (byPlayer) useGame.getState().addKill();
   };
 
-  const onContact = (id: number) => {
+  const onContact = (id: number, type: ZombieType) => {
     const st = useGame.getState();
     if (st.phase !== "playing") return;
     remove(id, false);
-    st.damage(CONTACT_DAMAGE);
+    const dmg = ZOMBIE_PROFILES[type].damage;
+    st.damage(dmg);
     sfx.hurt();
     sfx.kill();
   };
@@ -140,6 +205,7 @@ export function Enemies() {
         hp: e.hp,
         flashUntil: 0,
         color: e.color,
+        type: e.type,
       });
     }
     setEnemies(list);
@@ -176,7 +242,7 @@ export function Enemies() {
   return (
     <group>
       {enemies.map((e) => (
-        <Enemy
+        <ZombieEnemy
           key={e.id}
           data={e}
           meshes={meshes}
@@ -190,178 +256,76 @@ export function Enemies() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Single enemy — Scary Winston Churchill Balloon with TNT Bomb        */
+/* Walking 3D Zombie Enemy Component with Kinematic Locomotion        */
 /* ------------------------------------------------------------------ */
 
 const WHITE = new THREE.Color("#ffffff");
 
-interface EnemyProps {
+interface ZombieEnemyProps {
   data: EnemyData;
   meshes: Map<number, THREE.Object3D>;
   rt: () => Rt | undefined;
-  onContact: (id: number) => void;
+  onContact: (id: number, type: ZombieType) => void;
 }
 
-export function Enemy({ data, meshes, rt, onContact }: EnemyProps) {
+export function ZombieEnemy({ data, meshes, rt, onContact }: ZombieEnemyProps) {
   const group = useRef<THREE.Group>(null);
-  const balloonMat = useRef<THREE.MeshStandardMaterial>(null);
-  const baseColor = useRef(new THREE.Color("#e8a382"));
+  const leftLegRef = useRef<THREE.Group>(null);
+  const rightLegRef = useRef<THREE.Group>(null);
+  const leftArmRef = useRef<THREE.Group>(null);
+  const rightArmRef = useRef<THREE.Group>(null);
+  const bodyGroupRef = useRef<THREE.Group>(null);
+  const hitMatRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  const profile = ZOMBIE_PROFILES[data.type];
+  const isTank = data.type === "tank";
+  const isRunner = data.type === "runner";
 
   const skinMat = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color: "#e8a382",
-        roughness: 0.65,
+        color: profile.skinColor,
+        roughness: 0.75,
         metalness: 0.05,
       }),
-    [],
+    [profile.skinColor],
   );
-  const hatMat = useMemo(
+
+  const shirtMat = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color: "#16181c",
+        color: profile.shirtColor,
         roughness: 0.85,
-        metalness: 0.1,
+        metalness: 0.0,
       }),
-    [],
+    [profile.shirtColor],
   );
 
-  const hatBandMat = useMemo(
+  const pantsMat = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
-        color: "#5e141a",
-        roughness: 0.6,
-        metalness: 0.2,
-      }),
-    [],
-  );
-
-  const darkWood = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#2e180e",
-        roughness: 0.8,
-      }),
-    [],
-  );
-
-  const redEyeMat = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: "#ff0022",
-        toneMapped: false,
-      }),
-    [],
-  );
-
-  const eyeSocket = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: "#0a0202",
-      }),
-    [],
-  );
-
-  const cigarBrown = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#4a2b16",
-        roughness: 0.75,
-      }),
-    [],
-  );
-
-  const cigarBand = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#d4af37",
-        roughness: 0.3,
-        metalness: 0.8,
-      }),
-    [],
-  );
-
-  const cigarEmber = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: "#ff3300",
-        toneMapped: false,
-      }),
-    [],
-  );
-
-  const tntRed = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#e62222",
-        roughness: 0.42,
-        metalness: 0.08,
-      }),
-    [],
-  );
-
-  const tntBandMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#1a1815",
-        roughness: 0.8,
-        metalness: 0.2,
-      }),
-    [],
-  );
-
-  const fuseMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#e8c547",
+        color: profile.pantsColor,
         roughness: 0.9,
+        metalness: 0.0,
       }),
-    [],
+    [profile.pantsColor],
   );
 
-  const sparkMat = useMemo(
+  const eyeMat = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: "#ffee00",
+        color: profile.eyeColor,
         toneMapped: false,
       }),
-    [],
+    [profile.eyeColor],
   );
 
-  const sparkGlow = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: "#ff4400",
-        toneMapped: false,
-      }),
-    [],
-  );
+  const darkMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#0d0d0d" }), []);
+  const bloodMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#540d0d", roughness: 0.5 }), []);
+  const boneMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#dedede", roughness: 0.6 }), []);
 
-  const ropeMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#8b6914",
-        roughness: 0.95,
-      }),
-    [],
-  );
-
-  const tntTex = useMemo(() => {
-    const c = document.createElement("canvas");
-    c.width = 256;
-    c.height = 128;
-    const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "#f0f0f0";
-    ctx.fillRect(0, 0, 256, 128);
-    ctx.fillStyle = "#111111";
-    ctx.font = "900 84px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("TNT", 128, 64);
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }, []);
+  const torsoWidth = isTank ? 0.6 : 0.44;
+  const torsoDepth = isTank ? 0.38 : 0.24;
 
   useFrame((state, dtRaw) => {
     const g = group.current;
@@ -371,15 +335,17 @@ export function Enemy({ data, meshes, rt, onContact }: EnemyProps) {
     const t = state.clock.elapsedTime;
     const st = useGame.getState();
 
+    let isMoving = false;
     if (st.phase === "playing") {
       const dx = playerPos.x - r.pos.x;
       const dz = playerPos.z - r.pos.z;
       const dist = Math.hypot(dx, dz);
       if (dist < CONTACT_DIST) {
-        onContact(data.id); // kamikaze TNT detonation against the player
+        onContact(data.id, data.type); // Attack player on contact
         return;
       }
       if (dist > 0.001) {
+        isMoving = true;
         const step = data.speed * dt;
         const nx = r.pos.x + (dx / dist) * step;
         const nz = r.pos.z + (dz / dist) * step;
@@ -389,186 +355,196 @@ export function Enemy({ data, meshes, rt, onContact }: EnemyProps) {
       }
     }
 
-    // Floating balloon hover bob + tilt toward movement direction
-    const bob = Math.sin(t * 2.4 + data.phase) * 0.18;
-    g.position.set(r.pos.x, ENEMY_Y + 0.35 + bob, r.pos.z);
+    g.position.set(r.pos.x, 0.0, r.pos.z);
 
-    // Face the player directly with Churchill's scary scowl
+    // Rotate to face the player directly
     const angleToPlayer = Math.atan2(playerPos.x - r.pos.x, playerPos.z - r.pos.z);
     g.rotation.y = angleToPlayer;
-    // Subtle swaying tilt
-    g.rotation.z = Math.sin(t * 1.8 + data.phase) * 0.06;
-    g.rotation.x = Math.cos(t * 1.5 + data.phase) * 0.04;
 
-    // Hit flash
-    const m = balloonMat.current;
+    // Kinematic Walking Animation
+    const animSpeed = isRunner ? 12 : isTank ? 6 : 8.5;
+    const animPhase = t * animSpeed + data.phase;
+
+    if (leftLegRef.current && rightLegRef.current) {
+      const legAngle = isMoving ? Math.sin(animPhase) * 0.65 : 0;
+      leftLegRef.current.rotation.x = legAngle;
+      rightLegRef.current.rotation.x = -legAngle;
+    }
+
+    if (leftArmRef.current && rightArmRef.current) {
+      const armSway = isMoving ? Math.sin(animPhase) * 0.18 : 0;
+      leftArmRef.current.rotation.x = -1.35 + armSway;
+      rightArmRef.current.rotation.x = -1.45 - armSway;
+    }
+
+    if (bodyGroupRef.current) {
+      // Natural zombie lurch and wobble
+      bodyGroupRef.current.position.y = isMoving ? Math.abs(Math.sin(animPhase)) * 0.05 : 0;
+      bodyGroupRef.current.rotation.y = isMoving ? Math.sin(animPhase) * 0.08 : 0;
+    }
+
+    // Hit Flash
+    const m = hitMatRef.current;
     if (m) {
       if (r.flashUntil - performance.now() > 0) {
         m.emissive.copy(WHITE);
         m.emissiveIntensity = 4;
       } else {
-        m.emissive.copy(baseColor.current);
-        m.emissiveIntensity = 0.12;
+        m.emissive.set("#000000");
+        m.emissiveIntensity = 0;
       }
     }
   });
 
   return (
-    <group ref={group} position={[data.x, ENEMY_Y + 0.6, data.z]}>
-      {/* 1. Churchill Egg Balloon Head */}
+    <group ref={group} position={[data.x, 0.0, data.z]} scale={profile.scale}>
+      {/* Raycast hit-target capsule anchor */}
       <mesh
         castShadow
         userData={{ enemyId: data.id }}
+        position={[0, 0.95, 0]}
         ref={(m: THREE.Mesh | null) => {
           if (m) meshes.set(data.id, m);
           else meshes.delete(data.id);
         }}
       >
-        <sphereGeometry args={[0.58, 32, 32]} />
+        <capsuleGeometry args={[0.32, 0.85, 8, 16]} />
         <meshStandardMaterial
-          ref={balloonMat}
-          color="#e8a382"
-          emissive="#331105"
-          emissiveIntensity={0.15}
-          roughness={0.65}
-          metalness={0.05}
+          ref={hitMatRef}
+          color={profile.shirtColor}
+          roughness={0.8}
+          transparent
+          opacity={0.0}
         />
       </mesh>
-      {/* 3D Churchill Facial Features */}
-      {/* Prominent Churchill Jowls */}
-      <mesh position={[-0.24, -0.22, 0.38]} material={skinMat}>
-        <sphereGeometry args={[0.18, 16, 16]} />
-      </mesh>
-      <mesh position={[0.24, -0.22, 0.38]} material={skinMat}>
-        <sphereGeometry args={[0.18, 16, 16]} />
-      </mesh>
-      {/* Double Chin */}
-      <mesh position={[0, -0.32, 0.36]} material={skinMat}>
-        <sphereGeometry args={[0.16, 16, 16]} />
-      </mesh>
 
-      {/* Bulbous Nose */}
-      <mesh position={[0, -0.05, 0.52]}>
-        <sphereGeometry args={[0.09, 16, 16]} />
-        <meshStandardMaterial color="#d97d57" roughness={0.7} />
-      </mesh>
+      {/* 3D Animated Zombie Rig */}
+      <group ref={bodyGroupRef}>
+        {/* 1. Torso */}
+        <mesh
+          castShadow
+          position={[0, 0.95, 0]}
+          rotation={[isRunner ? 0.28 : 0.16, 0, 0]}
+          material={shirtMat}
+        >
+          <boxGeometry args={[torsoWidth, 0.56, torsoDepth]} />
+        </mesh>
 
-      {/* Scowling Eyebrows */}
-      <mesh position={[-0.16, 0.12, 0.48]} rotation={[0, 0, -0.28]} material={darkWood}>
-        <boxGeometry args={[0.2, 0.04, 0.04]} />
-      </mesh>
-      <mesh position={[0.16, 0.12, 0.48]} rotation={[0, 0, 0.28]} material={darkWood}>
-        <boxGeometry args={[0.2, 0.04, 0.04]} />
-      </mesh>
+        {/* Bite/Claw Wound showing ribs on chest */}
+        <mesh position={[0.12, 0.92, torsoDepth * 0.5 + 0.01]} material={bloodMat}>
+          <boxGeometry args={[0.12, 0.18, 0.04]} />
+        </mesh>
+        <mesh position={[0.12, 0.94, torsoDepth * 0.5 + 0.02]} material={boneMat}>
+          <boxGeometry args={[0.08, 0.02, 0.03]} />
+        </mesh>
 
-      {/* Glowing Menacing Red Eyes */}
-      {[-0.15, 0.15].map((x, i) => (
-        <group key={i} position={[x, 0.04, 0.46]}>
-          <mesh material={eyeSocket}>
-            <sphereGeometry args={[0.052, 12, 12]} />
+        {/* 2. Head (Hunched, snarling jaw, glowing eyes) */}
+        <group
+          position={[0, 1.38, isRunner ? 0.12 : 0.06]}
+          rotation={[isRunner ? 0.25 : 0.12, 0, isRunner ? -0.1 : 0.1]}
+        >
+          {/* Skull */}
+          <mesh position={[0, 0.1, 0]} material={skinMat} castShadow>
+            <boxGeometry args={[0.28, 0.32, 0.28]} />
           </mesh>
-          <mesh position={[0, 0, 0.02]} material={redEyeMat}>
-            <sphereGeometry args={[0.038, 12, 12]} />
+
+          {/* Sunken Eye Sockets + Glowing Pupils */}
+          {[-0.07, 0.07].map((x, i) => (
+            <group key={i}>
+              <mesh position={[x, 0.12, 0.14]} material={darkMat}>
+                <boxGeometry args={[0.065, 0.065, 0.04]} />
+              </mesh>
+              <mesh position={[x, 0.12, 0.155]} material={eyeMat}>
+                <sphereGeometry args={[0.024, 8, 8]} />
+              </mesh>
+            </group>
+          ))}
+
+          {/* Agaped Open Snarling Jaw */}
+          <mesh position={[0, -0.06, 0.04]} rotation={[0.22, 0, 0]} material={skinMat}>
+            <boxGeometry args={[0.24, 0.1, 0.24]} />
+          </mesh>
+          <mesh position={[0, -0.02, 0.14]} material={darkMat}>
+            <boxGeometry args={[0.18, 0.06, 0.06]} />
+          </mesh>
+
+          {/* Sharp Teeth */}
+          {Array.from({ length: 4 }).map((_, i) => (
+            <mesh
+              key={i}
+              position={[-0.06 + i * 0.04, -0.01, 0.16]}
+              rotation={[Math.PI, 0, 0]}
+              material={boneMat}
+            >
+              <coneGeometry args={[0.01, 0.025, 4]} />
+            </mesh>
+          ))}
+        </group>
+
+        {/* 3. Outstretched Reaching Right Arm */}
+        <group
+          ref={rightArmRef}
+          position={[torsoWidth * 0.5 + 0.08, 1.18, 0]}
+          rotation={[-1.45, 0, -0.15]}
+        >
+          <mesh position={[0, -0.16, 0]} material={shirtMat}>
+            <cylinderGeometry args={[0.06, 0.055, 0.36, 8]} />
+          </mesh>
+          <mesh position={[0, -0.42, 0]} material={skinMat}>
+            <cylinderGeometry args={[0.05, 0.045, 0.38, 8]} />
+          </mesh>
+          <mesh position={[0, -0.62, 0.02]} material={skinMat}>
+            <boxGeometry args={[0.1, 0.05, 0.12]} />
           </mesh>
         </group>
-      ))}
 
-      {/* Forehead Furrow Wrinkles */}
-      {Array.from({ length: 4 }).map((_, i) => (
-        <mesh
-          key={i}
-          position={[0, 0.22 + i * 0.06, 0.42 - i * 0.03]}
-          rotation={[-0.35, 0, 0]}
-          material={darkWood}
+        {/* 4. Outstretched Reaching Left Arm */}
+        <group
+          ref={leftArmRef}
+          position={[-torsoWidth * 0.5 - 0.08, 1.18, 0]}
+          rotation={[-1.35, 0, 0.2]}
         >
-          <torusGeometry args={[0.28 - i * 0.02, 0.008, 6, 16, Math.PI * 0.7]} />
-        </mesh>
-      ))}
+          <mesh position={[0, -0.16, 0]} material={shirtMat}>
+            <cylinderGeometry args={[0.06, 0.055, 0.36, 8]} />
+          </mesh>
+          <mesh position={[0, -0.42, 0]} material={skinMat}>
+            <cylinderGeometry args={[0.05, 0.045, 0.38, 8]} />
+          </mesh>
+          <mesh position={[0, -0.62, 0.02]} material={skinMat}>
+            <boxGeometry args={[0.1, 0.05, 0.12]} />
+          </mesh>
+        </group>
+      </group>
 
-      {/* Balloon Knot at bottom */}
-      <mesh position={[0, -0.65, 0]} material={skinMat}>
-        <coneGeometry args={[0.07, 0.09, 12]} />
-      </mesh>
-
-      {/* 2. Winston Churchill Homburg Top Hat */}
-      <group position={[0, 0.58, 0.02]} rotation={[-0.15, 0, 0]}>
-        {/* Brim */}
-        <mesh material={hatMat}>
-          <cylinderGeometry args={[0.58, 0.58, 0.03, 32]} />
+      {/* 5. Animated Left Leg */}
+      <group ref={leftLegRef} position={[-0.14, 0.68, 0]}>
+        <mesh position={[0, -0.18, 0]} material={pantsMat}>
+          <cylinderGeometry args={[0.07, 0.06, 0.42, 8]} />
         </mesh>
-        {/* Crown */}
-        <mesh position={[0, 0.17, 0]} material={hatMat}>
-          <cylinderGeometry args={[0.38, 0.42, 0.34, 32]} />
+        <mesh position={[0, -0.46, 0]} material={pantsMat}>
+          <cylinderGeometry args={[0.055, 0.05, 0.38, 8]} />
         </mesh>
-        {/* Hat Band */}
-        <mesh position={[0, 0.05, 0]} material={hatBandMat}>
-          <cylinderGeometry args={[0.425, 0.425, 0.06, 32]} />
+        <mesh position={[0, -0.66, 0.04]} material={darkMat}>
+          <boxGeometry args={[0.1, 0.06, 0.16]} />
         </mesh>
       </group>
 
-      {/* 3. Thick Churchill Cigar in Mouth with Glowing Ember */}
-      <group position={[0.16, -0.22, 0.48]} rotation={[-0.15, 0.55, -0.2]}>
-        <mesh rotation={[Math.PI / 2, 0, 0]} material={cigarBrown}>
-          <cylinderGeometry args={[0.032, 0.028, 0.28, 16]} />
+      {/* 6. Animated Right Leg */}
+      <group ref={rightLegRef} position={[0.14, 0.68, 0]}>
+        <mesh position={[0, -0.18, 0]} material={pantsMat}>
+          <cylinderGeometry args={[0.07, 0.06, 0.42, 8]} />
         </mesh>
-        <mesh position={[0, 0, -0.05]} rotation={[Math.PI / 2, 0, 0]} material={cigarBand}>
-          <cylinderGeometry args={[0.0325, 0.0325, 0.04, 16]} />
+        <mesh position={[0, -0.46, 0]} material={pantsMat}>
+          <cylinderGeometry args={[0.055, 0.05, 0.38, 8]} />
         </mesh>
-        <mesh position={[0, 0, 0.14]} material={cigarEmber}>
-          <sphereGeometry args={[0.032, 12, 12]} />
-        </mesh>
-      </group>
-      {/* 4. Large Strapped Red TNT Bomb Payload */}
-      <group position={[0, -0.92, 0]}>
-        {/* 4 Heavy Red Dynamite Sticks */}
-        {[
-          [-0.07, 0, -0.05],
-          [0.07, 0, -0.05],
-          [-0.07, 0, 0.05],
-          [0.07, 0, 0.05],
-        ].map(([x, y, z], i) => (
-          <group key={i} position={[x, y, z]}>
-            <mesh material={tntRed} castShadow>
-              <cylinderGeometry args={[0.07, 0.07, 0.46, 16]} />
-            </mesh>
-            <mesh position={[0, 0.28, 0]} material={fuseMat}>
-              <cylinderGeometry args={[0.008, 0.008, 0.14, 8]} />
-            </mesh>
-          </group>
-        ))}
-
-        {/* Dark Binding Straps */}
-        <mesh position={[0, 0.12, 0]} material={tntBandMat}>
-          <boxGeometry args={[0.32, 0.06, 0.26]} />
-        </mesh>
-        <mesh position={[0, -0.12, 0]} material={tntBandMat}>
-          <boxGeometry args={[0.32, 0.06, 0.26]} />
-        </mesh>
-
-        {/* White Stenciled TNT Plate on Front */}
-        <mesh position={[0, 0, 0.14]}>
-          <boxGeometry args={[0.26, 0.16, 0.025]} />
-          <meshStandardMaterial map={tntTex} roughness={0.6} />
-        </mesh>
-
-        {/* Glowing Burning Spark on Fuse */}
-        <mesh position={[0, 0.38, 0]} material={sparkMat}>
-          <sphereGeometry args={[0.04, 12, 12]} />
-        </mesh>
-        <mesh position={[0, 0.38, 0]} material={sparkGlow}>
-          <sphereGeometry args={[0.08, 12, 12]} />
+        <mesh position={[0, -0.66, 0.04]} material={darkMat}>
+          <boxGeometry args={[0.1, 0.06, 0.16]} />
         </mesh>
       </group>
-      {/* 5. Suspension Ropes connecting knot to TNT */}
-      <mesh position={[-0.06, -0.81, 0]} rotation={[0, 0, 0.16]} material={ropeMat}>
-        <cylinderGeometry args={[0.006, 0.006, 0.36, 8]} />
-      </mesh>
-      <mesh position={[0.06, -0.81, 0]} rotation={[0, 0, -0.16]} material={ropeMat}>
-        <cylinderGeometry args={[0.006, 0.006, 0.36, 8]} />
-      </mesh>
     </group>
   );
 }
+
 /* ------------------------------------------------------------------ */
 /* Death bursts — one instanced mesh for all shrapnel particles.       */
 /* ------------------------------------------------------------------ */
