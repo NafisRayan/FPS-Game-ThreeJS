@@ -531,9 +531,9 @@ export function Player() {
       const swayX = active ? Math.cos(bobPhase.current) * 0.007 : 0;
 
       // Interpolate between Hip-Fire and Iron Sight (ADS)
-      // In iron sights ADS, rear tangent sight and front hooded sight post align along optical center line
-      const hipPos = { x: 0.14 + swayX, y: -0.15 + sway, z: -0.42 };
-      const adsPos = { x: 0.000, y: -0.058 + sway * 0.2, z: -0.34 };
+      // Adjusted to comfortable, prominent FPS positioning
+      const hipPos = { x: 0.16 + swayX, y: -0.16 + sway, z: -0.36 };
+      const adsPos = { x: 0.000, y: -0.068 + sway * 0.2, z: -0.28 };
 
       const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current) + reloadTransX;
       const posY = THREE.MathUtils.lerp(hipPos.y, adsPos.y, aimProgress.current) + reloadTransY;
@@ -542,7 +542,6 @@ export function Player() {
       g.translateX(posX);
       g.translateY(posY);
       g.translateZ(posZ);
-
       const hipRotX = recoil.current * 0.06 + reloadRotX;
       const adsRotX = recoil.current * 0.02 + reloadRotX;
       const rotX = THREE.MathUtils.lerp(hipRotX, adsRotX, aimProgress.current);

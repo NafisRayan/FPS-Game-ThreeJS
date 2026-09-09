@@ -78,12 +78,14 @@ function Ground() {
 /* Instanced grass blades with a GPU wind shader                      */
 /* ================================================================== */
 
-/** A tapered, slightly bent blade — 12 triangles, built once. */
+/** A tapered, slightly bent blade — 12 triangles, built once.
+ *  Height reduced 30% (0.42 -> 0.294) and width reduced 85% (0.15x multiplier). */
 function makeBladeGeometry(): THREE.BufferGeometry {
-  const H = 0.42;
+  const H = 0.294; // 30% shorter than original 0.42
   const levels = [0, 0.3, 0.58, 0.82, 1];
-  const widths = [0.026, 0.022, 0.016, 0.009, 0];
-  const bend = [0, 0.01, 0.035, 0.075, 0.125];
+  // 85% thinner (0.15x original widths):
+  const widths = [0.0039, 0.0033, 0.0024, 0.00135, 0];
+  const bend = [0, 0.007, 0.024, 0.052, 0.088];
 
   const pos: number[] = [];
   const uv: number[] = [];
@@ -118,12 +120,11 @@ function makeBladeGeometry(): THREE.BufferGeometry {
   n.needsUpdate = true;
   return g;
 }
-
 const GRASS_TIP = new THREE.Color("#b9d16a");
 const GRASS_BASE = new THREE.Color("#3f6326");
 
-const GRASS_CHUNKS = 6; // 6x6 grid — enables real frustum culling per cell
-const GRASS_EXTENT = ARENA_HALF + 14; // matches the old single-mesh scatter radius
+const GRASS_CHUNKS = 8; // 8x8 grid (64 culled chunks) for fine-grained frustum culling at 10x density
+const GRASS_EXTENT = ARENA_HALF + 14;
 
 interface GrassInstance {
   x: number;
@@ -373,10 +374,11 @@ export function Terrain() {
   const lowDetail = useGame((st) => st.settings.lowDetail);
   const autoQuality = useGame((st) => st.autoQuality);
   const low = lowDetail || autoQuality === "low";
+  // 10x count increase: 26,000 -> 260,000 blades (90,000 on low detail)
   return (
     <group>
       <Ground />
-      <GrassField count={low ? 9000 : 26000} />
+      <GrassField count={low ? 90000 : 260000} />
       <Scenery />
     </group>
   );
