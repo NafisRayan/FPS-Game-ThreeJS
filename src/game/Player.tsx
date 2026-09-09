@@ -14,7 +14,7 @@ import { useGame, MAG_SIZE } from "./store";
 import { SPAWN, playerPos, enemyApi, controlsApi } from "./refs";
 import { sfx } from "./audio";
 import { input, lookState, playerApi } from "./input";
-import { Rifle, RightHand, LeftHand } from "./Viewmodel";
+import { AK47, RightArm, LeftArm } from "./Viewmodel";
 
 /* ------------------------------------------------------------------ */
 /* Rapier structural types derived from the live world instance        */
@@ -85,7 +85,6 @@ export function Player() {
   const aimingDownSights = useRef(false);
   const aimProgress = useRef(0); // 0 (hip) -> 1 (ADS)
   const reloadStart = useRef(0);
-  const leftHandOffset = useRef<[number, number, number]>([0, 0, 0]);
   const velY = useRef(0);
   const wasGrounded = useRef(false);
   const bobPhase = useRef(0);
@@ -95,6 +94,8 @@ export function Player() {
   const reloadTimeout = useRef<number | null>(null);
 
   const gun = useRef<THREE.Group>(null);
+  const leftArmGroup = useRef<THREE.Group>(null);
+  const magGroup = useRef<THREE.Group>(null);
   const muzzle = useRef<THREE.Object3D>(null);
   const flashSprite = useRef<THREE.Sprite>(null);
   const flashLight = useRef<THREE.PointLight>(null);
@@ -468,50 +469,73 @@ export function Player() {
       g.position.copy(camera.position);
       g.quaternion.copy(camera.quaternion);
 
-      // Procedural Reload Animation:
-      // Phase 1 (0-35%): Tilt gun up & right, left hand drops to pull fresh mag
-      // Phase 2 (35-70%): Left hand slaps fresh mag in, gun rocks slightly down
-      // Phase 3 (70-100%): Racks charging handle / returns to shoulder
+      // Realistic Multi-Phase AK-47 Reload Kinematics:
+      // Phase 1 (0-30%): Weapon tilts left/up (showing banana mag); Left hand leaves handguard and rocks the empty mag forward/out
+      // Phase 2 (30-65%): Left hand grabs fresh bakelite magazine from pouch and firmly locks/clicks it into the magwell (mag rocks in)
+      // Phase 3 (65-88%): Left hand reaches over/under to decisively rack the right-side steel bolt charging handle
+      // Phase 4 (88-100%): Left hand returns to cupping the wooden lower handguard; weapon settles back onto shoulder
       let reloadRotX = 0;
+      let reloadRotY = 0;
       let reloadRotZ = 0;
+      let reloadTransX = 0;
       let reloadTransY = 0;
       let reloadTransZ = 0;
+
+      const leftArm = leftArmGroup.current;
+      const mag = magGroup.current;
 
       if (st.reloading && reloadStart.current > 0) {
         const elapsed = (performance.now() - reloadStart.current) / RELOAD_MS;
         const p = Math.min(1, Math.max(0, elapsed));
-        if (p < 0.35) {
-          const t = p / 0.35;
-          reloadRotX = -0.32 * Math.sin(t * Math.PI * 0.5);
-          reloadRotZ = 0.22 * Math.sin(t * Math.PI * 0.5);
-          reloadTransY = -0.06 * Math.sin(t * Math.PI * 0.5);
-          leftHandOffset.current = [0, -0.22 * t, 0.12 * t];
-        } else if (p < 0.7) {
-          const t = (p - 0.35) / 0.35;
-          reloadRotX = -0.32 + 0.14 * Math.sin(t * Math.PI);
-          reloadRotZ = 0.22 - 0.1 * t;
-          reloadTransY = -0.06 + 0.04 * t;
-          leftHandOffset.current = [0, -0.22 * (1 - t), 0.12 * (1 - t)];
+        if (p < 0.3) {
+          // Tilt gun to expose magazine well, left hand releases handguard and drops down
+          const t = p / 0.3;
+          reloadRotX = -0.35 * Math.sin(t * Math.PI * 0.5);
+          reloadRotZ = 0.42 * Math.sin(t * Math.PI * 0.5);
+          reloadRotY = -0.18 * Math.sin(t * Math.PI * 0.5);
+          reloadTransY = -0.08 * Math.sin(t * Math.PI * 0.5);
+          if (leftArm) leftArm.position.set(0.04 * t, -0.32 * t, 0.18 * t);
+          if (mag) mag.position.set(0, -0.55 * t, -0.12 * t);
+        } else if (p < 0.65) {
+          // Fresh magazine brought up from bottom and rocked firmly into the magwell
+          const t = (p - 0.3) / 0.35;
+          reloadRotX = -0.35 + 0.12 * Math.sin(t * Math.PI);
+          reloadRotZ = 0.42 - 0.14 * t;
+          reloadRotY = -0.18 + 0.06 * t;
+          reloadTransY = -0.08 + 0.03 * Math.sin(t * Math.PI * 2);
+          if (leftArm) leftArm.position.set(0.04 * (1 - t), -0.32 * (1 - t), 0.18 * (1 - t));
+          if (mag) mag.position.set(0, -0.45 * (1 - t), -0.08 * (1 - t));
+        } else if (p < 0.88) {
+          // Reaching to charging handle and racking bolt back
+          const t = (p - 0.65) / 0.23;
+          reloadRotX = -0.18 + 0.08 * Math.sin(t * Math.PI);
+          reloadRotZ = 0.28 * (1 - t);
+          reloadTransZ = 0.06 * Math.sin(t * Math.PI);
+          if (leftArm) leftArm.position.set(0.06 * Math.sin(t * Math.PI), 0.08 * Math.sin(t * Math.PI), 0.22 * Math.sin(t * Math.PI));
+          if (mag) mag.position.set(0, 0, 0);
         } else {
-          const t = (p - 0.7) / 0.3;
-          reloadRotX = -0.18 * (1 - t);
-          reloadRotZ = 0.12 * (1 - t);
-          reloadTransY = -0.02 * (1 - t);
-          leftHandOffset.current = [0, 0, 0];
+          // Settling back to shoulder stance
+          const t = (p - 0.88) / 0.12;
+          reloadRotX = -0.08 * (1 - t);
+          reloadRotZ = 0;
+          reloadRotY = 0;
+          reloadTransY = 0;
+          if (leftArm) leftArm.position.set(0, 0, 0);
+          if (mag) mag.position.set(0, 0, 0);
         }
       } else {
-        leftHandOffset.current = [0, 0, 0];
+        if (leftArm) leftArm.position.set(0, 0, 0);
+        if (mag) mag.position.set(0, 0, 0);
       }
-
       const sway = active ? Math.sin(bobPhase.current * 2) * 0.011 : 0;
       const swayX = active ? Math.cos(bobPhase.current) * 0.007 : 0;
 
-      // Interpolate between Hip-Fire and Aim-Down-Sights (ADS)
-      // Optical center: sight is at Y=+0.108, so gun Y=-0.108 brings optic exactly to crosshair line of sight
-      const hipPos = { x: 0.14 + swayX, y: -0.15 + sway, z: -0.38 };
-      const adsPos = { x: 0.000, y: -0.108 + sway * 0.2, z: -0.31 };
+      // Interpolate between Hip-Fire and Iron Sight (ADS)
+      // In iron sights ADS, rear tangent sight and front hooded sight post align along optical center line
+      const hipPos = { x: 0.14 + swayX, y: -0.15 + sway, z: -0.42 };
+      const adsPos = { x: 0.000, y: -0.058 + sway * 0.2, z: -0.34 };
 
-      const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current);
+      const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current) + reloadTransX;
       const posY = THREE.MathUtils.lerp(hipPos.y, adsPos.y, aimProgress.current) + reloadTransY;
       const posZ = THREE.MathUtils.lerp(hipPos.z, adsPos.z, aimProgress.current) + reloadTransZ + recoil.current * 0.05;
 
@@ -522,7 +546,7 @@ export function Player() {
       const hipRotX = recoil.current * 0.06 + reloadRotX;
       const adsRotX = recoil.current * 0.02 + reloadRotX;
       const rotX = THREE.MathUtils.lerp(hipRotX, adsRotX, aimProgress.current);
-      const rotY = THREE.MathUtils.lerp(-0.02, 0.0, aimProgress.current);
+      const rotY = THREE.MathUtils.lerp(-0.02, 0.0, aimProgress.current) + reloadRotY;
       const rotZ = reloadRotZ;
 
       g.rotateX(rotX);
@@ -531,20 +555,19 @@ export function Player() {
     }
   });
 
-  /* ----------------------------- JSX --------------------------- */
   return (
     <group>
-      {/* ---------- weapon view-model: real rifle + rigged hands ---------- */}
+      {/* ---------- weapon view-model: AK-47 + rigged arms ---------- */}
       <group ref={gun}>
         <Suspense fallback={null}>
-          <Rifle />
-          <RightHand />
-          <LeftHand offset={leftHandOffset.current} />
+          <AK47 magRef={magGroup} />
+          <RightArm />
+          <LeftArm ref={leftArmGroup} />
         </Suspense>
 
-        {/* muzzle anchor, flash sprite & dynamic light aligned with extended tactical barrel */}
-        <object3D ref={muzzle} position={[0, 0.046, -0.62]} />
-        <sprite ref={flashSprite} position={[0, 0.046, -0.64]} visible={false}>
+        {/* muzzle anchor, flash sprite & dynamic light aligned with AK-47 muzzle brake */}
+        <object3D ref={muzzle} position={[0, 0.009, -0.6]} />
+        <sprite ref={flashSprite} position={[0, 0.009, -0.62]} visible={false}>
           <spriteMaterial
             map={flashTex}
             color="#ffdca8"
