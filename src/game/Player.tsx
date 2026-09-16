@@ -651,9 +651,10 @@ export function Player() {
           <LeftArm ref={leftArmGroup} />
         </Suspense>
 
-        {/* muzzle anchor, flash sprite & dynamic light aligned with AK-47 muzzle tip */}
-        <object3D ref={muzzle} position={[0.0, 0.0, -0.865]} />
-        <sprite ref={flashSprite} position={[0.0, 0.0, -0.87]} visible={false}>
+        {/* muzzle anchor, flash sprite & dynamic light aligned with the real
+            AK-47 muzzle tip (0.034, -0.059, -0.893 in gun-group space) */}
+        <object3D ref={muzzle} position={[0.034, -0.059, -0.893]} />
+        <sprite ref={flashSprite} position={[0.034, -0.059, -0.893]} visible={false}>
           <spriteMaterial
             map={flashTex}
             color="#ffdca8"
@@ -666,7 +667,7 @@ export function Player() {
         </sprite>
         <pointLight
           ref={flashLight}
-          position={[0.0, 0.0, -0.87]}
+          position={[0.034, -0.059, -0.893]}
           color="#ffc37a"
           intensity={0}
           distance={9}

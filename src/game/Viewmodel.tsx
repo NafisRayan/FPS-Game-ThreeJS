@@ -17,10 +17,12 @@ import { weaponAnimApi } from "./refs";
 export const RIFLE_LENGTH = 0.88;
 
 export const RIFLE_ANCHORS = {
-  muzzle: new THREE.Vector3(0.0, 0.0, -0.865),
-  grip: new THREE.Vector3(0.00, -0.17, -0.14),
-  handguard: new THREE.Vector3(0.00, -0.16, -0.44),
-  mag: new THREE.Vector3(0.00, -0.15, -0.28),
+  // True skinned muzzle tip under the Y=π · s=0.114 transform, measured from
+  // the model's actual vertex geometry (gun-group space).
+  muzzle: new THREE.Vector3(0.034, -0.059, -0.893),
+  grip: new THREE.Vector3(0.03, -0.12, -0.38),
+  handguard: new THREE.Vector3(0.03, -0.06, -0.5),
+  mag: new THREE.Vector3(0.02, -0.12, -0.42),
 };
 
 export function AK47(props: {
@@ -33,10 +35,13 @@ export function AK47(props: {
 
   // Set accurate orientation, scale, shadows, PBR materials, and camera-clipping prevention
   useMemo(() => {
-    // True orthogonal alignment: rear notch & front sight post laser-straight down -Z axis (0.0 roll, 0.0 yaw tilt)
-    scene.quaternion.set(0.9990822, -0.0125385, -0.0396927, -0.0101056).normalize();
-    scene.position.set(0.092565, -0.026438, 0.0);
-    scene.scale.set(0.108, 0.108, 0.108);
+    // Measured alignments (from the model's real skinned vertex geometry):
+    //  · Rotate Y by π so the barrel (native +Z) points down-range (-Z).
+    //  · Scale 0.114 → ~0.9 m rifle (matches RIFLE_LENGTH).
+    //  · Shift x by -0.0372 so the ADS iron-sight line is dead-centre.
+    scene.quaternion.set(0, 1, 0, 0); // Y = π
+    scene.position.set(-0.0372, 0, 0);
+    scene.scale.set(0.114, 0.114, 0.114);
 
     scene.traverse((child) => {
       const mesh = child as THREE.Mesh;
