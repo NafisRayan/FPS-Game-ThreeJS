@@ -16,17 +16,26 @@ export const controlsApi = {
   unlock: () => {},
 };
 
-export type HitResult = "hit" | "kill" | "none";
+export type HitResult = "hit" | "headshot" | "kill" | "none";
 
 export interface EnemyHandle {
   /** enemyId -> raycastable mesh */
   meshes: Map<number, THREE.Object3D>;
   /** Apply one bullet of damage. Returns what happened. */
-  hit: (id: number) => HitResult;
+  hit: (id: number, isHeadshot?: boolean) => HitResult;
 }
 
 /** Live handle to the enemy manager, set while <Enemies/> is mounted. */
 export const enemyApi: { current: EnemyHandle | null } = { current: null };
+
+/** Direct trigger for weapon viewmodel animations */
+export const weaponAnimApi: {
+  fire: () => void;
+  reload: () => void;
+} = {
+  fire: () => {},
+  reload: () => {},
+};
 
 /* ------------------------------------------------------------------ */
 /* Arena layout — single source of truth, also used for spawn checks.  */

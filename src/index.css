@@ -110,6 +110,16 @@ kbd {
   animation: kHit 0.24s ease-out forwards;
 }
 
+/* critical headshot hit marker */
+@keyframes kCritHit {
+  0% { opacity: 1; transform: scale(0.7) rotate(45deg); filter: drop-shadow(0 0 10px rgba(255, 215, 0, 0.95)); }
+  40% { opacity: 1; transform: scale(1.45) rotate(45deg); }
+  100% { opacity: 0; transform: scale(1.9) rotate(45deg); }
+}
+.crit-hit-marker {
+  animation: kCritHit 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* wave banner */
 @keyframes kBanner {
   0% { opacity: 0; transform: scale(1.05); }

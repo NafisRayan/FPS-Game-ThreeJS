@@ -1,5 +1,5 @@
 import { useGame, MAG_SIZE } from "../game/store";
-import { Heart, Skull, Trophy, VolumeX, Radiation } from "lucide-react";
+import { Heart, Skull, Trophy, VolumeX, Radiation, Crosshair } from "lucide-react";
 
 export function HUD() {
   const phase = useGame((s) => s.phase);
@@ -7,6 +7,8 @@ export function HUD() {
   const health = Math.round(useGame((s) => s.health));
   const score = useGame((s) => s.score);
   const kills = useGame((s) => s.kills);
+  const headshots = useGame((s) => s.headshots);
+  const lastHitIsHeadshot = useGame((s) => s.lastHitIsHeadshot);
   const wave = useGame((s) => s.wave);
   const enemiesLeft = useGame((s) => s.enemiesLeft);
   const ammo = useGame((s) => s.ammo);
@@ -14,6 +16,7 @@ export function HUD() {
   const reloading = useGame((s) => s.reloading);
   const bestScore = useGame((s) => s.bestScore);
   const damageAt = useGame((s) => s.damageAt);
+  const damageAngle = useGame((s) => s.damageAngle);
   const hitAt = useGame((s) => s.hitAt);
   const banner = useGame((s) => s.banner);
   const bannerAt = useGame((s) => s.bannerAt);
@@ -29,8 +32,20 @@ export function HUD() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 font-hud">
-      {/* ------- damage vignette ------- */}
-      {recentDmg && <div key={damageAt} className="dmg-flash absolute inset-0" />}
+      {/* ------- damage vignette & directional indicator ------- */}
+      {recentDmg && (
+        <>
+          <div key={damageAt} className="dmg-flash absolute inset-0" />
+          {damageAngle !== 0 && (
+            <div
+              className="absolute left-1/2 top-1/2 h-[320px] w-[320px] -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+              style={{ transform: `translate(-50%, -50%) rotate(${damageAngle}rad)` }}
+            >
+              <div className="mx-auto h-4 w-28 rounded-full bg-red-600/80 blur-[2px] shadow-[0_0_16px_#ff0033]" />
+            </div>
+          )}
+        </>
+      )}
 
       {/* ------- wave banner ------- */}
       {showBanner && (
@@ -42,21 +57,44 @@ export function HUD() {
         </div>
       )}
 
-      {/* ------- crosshair + hit marker ------- */}
-      {/* ------- crosshair + hit marker (hidden while aiming down optical sight) ------- */}
+      {/* ------- crosshair reticle (hidden while aiming down iron sights) ------- */}
       <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-150 ${aiming ? "opacity-0" : "opacity-100"}`}>
         <div className="absolute left-1/2 top-1/2 h-[3px] w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/95 shadow-[0_0_6px_rgba(120,230,255,0.9)]" />
         <div className="absolute left-1/2 top-1/2 h-[10px] w-[2px] -translate-x-1/2 bg-white" style={{ transform: "translate(-50%, -15px)" }} />
         <div className="absolute left-1/2 top-1/2 h-[10px] w-[2px] -translate-x-1/2 bg-white" style={{ transform: "translate(-50%, 5px)" }} />
         <div className="absolute left-1/2 top-1/2 h-[2px] w-[10px] -translate-y-1/2 bg-white" style={{ transform: "translate(-15px, -50%)" }} />
         <div className="absolute left-1/2 top-1/2 h-[2px] w-[10px] -translate-y-1/2 bg-white" style={{ transform: "translate(5px, -50%)" }} />
-        {recentHit && (
-          <div key={hitAt} className="hit-marker absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="absolute left-1/2 top-1/2 h-[2px] w-[26px] -translate-x-1/2 -translate-y-1/2 rotate-45 bg-red-400 shadow-[0_0_8px_rgba(255,60,90,0.9)]" />
-            <div className="absolute left-1/2 top-1/2 h-[2px] w-[26px] -translate-x-1/2 -translate-y-1/2 -rotate-45 bg-red-400 shadow-[0_0_8px_rgba(255,60,90,0.9)]" />
-          </div>
-        )}
       </div>
+
+      {/* ------- hit marker (always visible on hit, including during ADS) ------- */}
+      {recentHit && (
+        <div
+          key={hitAt}
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none ${
+            lastHitIsHeadshot ? "crit-hit-marker" : "hit-marker"
+          }`}
+        >
+          <div
+            className={`absolute left-1/2 top-1/2 h-[2.5px] w-[28px] -translate-x-1/2 -translate-y-1/2 rotate-45 ${
+              lastHitIsHeadshot
+                ? "bg-amber-300 shadow-[0_0_12px_#ffea00]"
+                : "bg-red-400 shadow-[0_0_8px_rgba(255,60,90,0.9)]"
+            }`}
+          />
+          <div
+            className={`absolute left-1/2 top-1/2 h-[2.5px] w-[28px] -translate-x-1/2 -translate-y-1/2 -rotate-45 ${
+              lastHitIsHeadshot
+                ? "bg-amber-300 shadow-[0_0_12px_#ffea00]"
+                : "bg-red-400 shadow-[0_0_8px_rgba(255,60,90,0.9)]"
+            }`}
+          />
+          {lastHitIsHeadshot && (
+            <span className="absolute -top-7 left-1/2 -translate-x-1/2 font-display text-[10px] font-black tracking-widest text-amber-300 drop-shadow-[0_0_8px_#ffbf00] whitespace-nowrap">
+              HEADSHOT
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ------- health (top-left) ------- */}
       <div className="hud-panel absolute left-3 top-3 w-[150px] rounded-md px-3 py-2 sm:left-5 sm:top-5 sm:w-[230px] sm:px-4 sm:py-3">
@@ -82,12 +120,15 @@ export function HUD() {
         <div className="font-display text-2xl font-bold text-slate-100">
           {String(score).padStart(6, "0")}
         </div>
-        <div className="mt-1 flex items-center justify-end gap-4 text-xs text-slate-300">
-          <span className="flex items-center gap-1.5">
+        <div className="mt-1 flex items-center justify-end gap-3 text-xs text-slate-300">
+          <span className="flex items-center gap-1">
             <Skull size={12} className="text-red-400" aria-hidden /> {kills}
           </span>
-          <span className="flex items-center gap-1.5">
-            <Trophy size={12} className="text-amber-300" aria-hidden /> {Math.max(bestScore, score)}
+          <span className="flex items-center gap-1 text-amber-300">
+            <Crosshair size={12} aria-hidden /> {headshots}
+          </span>
+          <span className="flex items-center gap-1">
+            <Trophy size={12} className="text-amber-400" aria-hidden /> {Math.max(bestScore, score)}
           </span>
         </div>
       </div>

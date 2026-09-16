@@ -122,10 +122,12 @@ export default function App() {
           antialias: false,
           powerPreference: "high-performance",
           stencil: false,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.12,
         }}
         camera={{
           fov: 75,
-          near: 0.1,
+          near: 0.03,
           far: 240,
           position: [SPAWN.x, SPAWN.y + 0.67, SPAWN.z],
         }}

@@ -1,337 +1,176 @@
-import React, { forwardRef, useMemo } from "react";
+import React, { forwardRef, useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { useGLTF, useAnimations } from "@react-three/drei";
+import { useFrame } from "@react-three/fiber";
+import { MODELS } from "./assets";
+import { weaponAnimApi } from "./refs";
 
 /* ================================================================== */
-/* Authentic AK-47 Viewmodel & Anatomical FPS Rig                     */
+/* AAA Photorealistic Rigged AK-47 Viewmodel                          */
 /*                                                                     */
-/* Features iconic AK-47 components: stamped receiver, dust cover,    */
-/* classic wooden lower/upper handguards, curved orange/bakelite       */
-/* banana magazine (detachable for reload animation), tangent rear     */
-/* sight, gas tube, barrel, hooded front sight post, and wooden stock. */
+/* Features full high-poly AK-47 assault rifle with textured tactical  */
+/* arms & hands, PBR materials (normal maps, roughness, metalness),   */
+/* and genuine skeletal animations: fire recoil, idle sway, and        */
+/* full magazine swap + bolt racking reload cycle.                    */
 /* ================================================================== */
 
 export const RIFLE_LENGTH = 0.88;
 
 export const RIFLE_ANCHORS = {
-  muzzle: new THREE.Vector3(0, 0.009, -0.6),
-  grip: new THREE.Vector3(0.012, -0.075, 0.08),
-  handguard: new THREE.Vector3(0, -0.032, -0.22),
-  mag: new THREE.Vector3(0, -0.045, -0.04),
+  muzzle: new THREE.Vector3(0.0, 0.0, -0.865),
+  grip: new THREE.Vector3(0.00, -0.17, -0.14),
+  handguard: new THREE.Vector3(0.00, -0.16, -0.44),
+  mag: new THREE.Vector3(0.00, -0.15, -0.28),
 };
 
-export function AK47({ magRef }: { magRef?: React.RefObject<THREE.Group | null> }) {
-  const steel = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#282c32",
-        metalness: 0.88,
-        roughness: 0.35,
-      }),
-    [],
-  );
+export function AK47(props: {
+  magRef?: React.RefObject<THREE.Group | null>;
+  aimProgressRef?: React.MutableRefObject<number>;
+}) {
+  const group = useRef<THREE.Group>(null);
+  const { scene, animations } = useGLTF(MODELS.rifle);
+  const { actions } = useAnimations(animations, group);
 
-  const darkSteel = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#16181b",
-        metalness: 0.92,
-        roughness: 0.28,
-      }),
-    [],
-  );
+  // Set accurate orientation, scale, shadows, PBR materials, and camera-clipping prevention
+  useMemo(() => {
+    // True orthogonal alignment: rear notch & front sight post laser-straight down -Z axis (0.0 roll, 0.0 yaw tilt)
+    scene.quaternion.set(0.9990822, -0.0125385, -0.0396927, -0.0101056).normalize();
+    scene.position.set(0.092565, -0.026438, 0.0);
+    scene.scale.set(0.108, 0.108, 0.108);
 
-  const wood = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#8b4513",
-        roughness: 0.52,
-        metalness: 0.05,
-      }),
-    [],
-  );
+    scene.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
 
-  const darkWood = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#5a2d12",
-        roughness: 0.58,
-        metalness: 0.05,
-      }),
-    [],
-  );
+        // Prune pure upper-arm/shoulder triangles from arm sleeve geometry once
+        if (mesh.name === "SkeletalMeshComponent0_1" && mesh.geometry && mesh.geometry.index) {
+          const geom = mesh.geometry;
+          if (!(geom as unknown as { _shoulderCleaned?: boolean })._shoulderCleaned) {
+            (geom as unknown as { _shoulderCleaned?: boolean })._shoulderCleaned = true;
+            const pos = geom.attributes.position;
+            const skinIndex = geom.attributes.skinIndex;
+            const skinWeight = geom.attributes.skinWeight;
+            const skeleton = (mesh as THREE.SkinnedMesh).skeleton;
+            if (pos && skinIndex && skinWeight && skeleton) {
+              const isExcluded = new Uint8Array(pos.count);
+              for (let i = 0; i < pos.count; i++) {
+                for (let j = 0; j < 4; j++) {
+                  const bIdx = skinIndex.getComponent(i, j);
+                  const w = skinWeight.getComponent(i, j);
+                  if (w > 0.1) {
+                    const bName = skeleton.bones[bIdx]?.name || "";
+                    if (bName.includes("upper_arm") || bName.includes("pole")) {
+                      isExcluded[i] = 1;
+                    }
+                  }
+                }
+              }
 
-  const bakelite = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#b54d1f",
-        roughness: 0.42,
-        metalness: 0.1,
-      }),
-    [],
-  );
+              const oldIndex = geom.index;
+              if (oldIndex) {
+                const newIndices: number[] = [];
+                for (let i = 0; i < oldIndex.count; i += 3) {
+                  const a = oldIndex.getX(i);
+                  const b = oldIndex.getX(i + 1);
+                  const c = oldIndex.getX(i + 2);
+                  if (isExcluded[a] && isExcluded[b] && isExcluded[c]) continue;
+                  newIndices.push(a, b, c);
+                }
+                geom.setIndex(newIndices);
+              }
+            }
+          }
+        }
+
+        if (mesh.material) {
+          const mat = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.MeshStandardMaterial;
+          if (mat && mat.isMeshStandardMaterial) {
+            mat.envMapIntensity = 1.25;
+
+            // Prevent elbow or upper sleeve polygons from clipping into the top-right camera view
+            if (mesh.name === "SkeletalMeshComponent0_1") {
+              mat.onBeforeCompile = (shader) => {
+                shader.fragmentShader = shader.fragmentShader.replace(
+                  "#include <clipping_planes_fragment>",
+                  `
+                  #include <clipping_planes_fragment>
+                  // Eliminate polygons sticking up or extending behind near-plane
+                  if (vViewPosition.y > 0.035 && vViewPosition.x > 0.07) discard;
+                  if (vViewPosition.z > -0.035) discard;
+                  `
+                );
+              };
+            }
+            mat.needsUpdate = true;
+          }
+        }
+      }
+    });
+  }, [scene]);
+
+  // Connect weaponAnimApi to trigger fire and reload skeletal animations
+  useEffect(() => {
+    // Start with idle animation
+    const idleAction = actions["idle"] || actions[Object.keys(actions)[1]];
+    if (idleAction) {
+      idleAction.reset().fadeIn(0.2).play();
+    }
+
+    weaponAnimApi.fire = () => {
+      const fireAction = actions["fire"] || actions[Object.keys(actions)[0]];
+      if (fireAction) {
+        fireAction.reset();
+        fireAction.setLoop(THREE.LoopOnce, 1);
+        fireAction.clampWhenFinished = false;
+        fireAction.timeScale = 1.35;
+        fireAction.play();
+      }
+    };
+
+    weaponAnimApi.reload = () => {
+      const reloadAction = actions["reload_empty"] || actions[Object.keys(actions)[2]];
+      if (reloadAction) {
+        reloadAction.reset();
+        reloadAction.setLoop(THREE.LoopOnce, 1);
+        reloadAction.clampWhenFinished = false;
+        reloadAction.timeScale = 3.3; // 6.87s / 3.3 ≈ 2.08s (matches 2.1s game reload cycle!)
+        reloadAction.play();
+      }
+    };
+
+    return () => {
+      weaponAnimApi.fire = () => {};
+      weaponAnimApi.reload = () => {};
+      idleAction?.stop();
+    };
+  }, [actions]);
+
+  // Fade idle skeletal sway when aiming down sights so iron sights remain laser-straight
+  useFrame(() => {
+    const idleAction = actions["idle"] || actions[Object.keys(actions)[1]];
+    if (idleAction) {
+      const p = props.aimProgressRef ? props.aimProgressRef.current : 0;
+      idleAction.weight = THREE.MathUtils.lerp(1.0, 0.0, p);
+    }
+  });
 
   return (
-    <group>
-      {/* 1. Receiver */}
-      <mesh position={[0, 0, 0]} material={steel} castShadow>
-        <boxGeometry args={[0.044, 0.07, 0.28]} />
-      </mesh>
-
-      {/* Ribbed Dust Cover (curved stamped metal top) */}
-      <mesh
-        position={[0, 0.035, -0.01]}
-        rotation={[0, Math.PI / 2, Math.PI / 2]}
-        material={darkSteel}
-        castShadow
-      >
-        <cylinderGeometry args={[0.022, 0.022, 0.26, 16, 1, false, 0, Math.PI]} />
-      </mesh>
-
-      {/* 2. Wooden Handguards */}
-      <mesh position={[0, -0.005, -0.22]} material={wood} castShadow>
-        <boxGeometry args={[0.044, 0.05, 0.17]} />
-      </mesh>
-
-      <mesh
-        position={[0, 0.03, -0.22]}
-        rotation={[0, Math.PI / 2, Math.PI / 2]}
-        material={darkWood}
-        castShadow
-      >
-        <cylinderGeometry args={[0.019, 0.019, 0.15, 12, 1, false, 0, Math.PI]} />
-      </mesh>
-
-      {/* 3. Gas Tube, Gas Block & Barrel */}
-      <mesh position={[0, 0.028, -0.26]} rotation={[Math.PI / 2, 0, 0]} material={darkSteel} castShadow>
-        <cylinderGeometry args={[0.011, 0.011, 0.23, 12]} />
-      </mesh>
-
-      <mesh position={[0, 0.026, -0.36]} material={darkSteel} castShadow>
-        <boxGeometry args={[0.026, 0.042, 0.032]} />
-      </mesh>
-
-      <mesh position={[0, 0.009, -0.36]} rotation={[Math.PI / 2, 0, 0]} material={darkSteel} castShadow>
-        <cylinderGeometry args={[0.011, 0.011, 0.44, 14]} />
-      </mesh>
-
-      {/* 4. Front Sight Post with AK Round Hood */}
-      <mesh position={[0, 0.034, -0.53]} material={darkSteel} castShadow>
-        <boxGeometry args={[0.02, 0.05, 0.026]} />
-      </mesh>
-      <mesh position={[0, 0.06, -0.53]} material={steel}>
-        <cylinderGeometry args={[0.002, 0.002, 0.016, 8]} />
-      </mesh>
-      <mesh position={[0, 0.06, -0.53]} material={darkSteel}>
-        <torusGeometry args={[0.011, 0.0025, 8, 16, Math.PI]} />
-      </mesh>
-
-      {/* Slanted AK Muzzle Brake */}
-      <mesh position={[0, 0.009, -0.6]} rotation={[Math.PI / 2, 0, 0]} material={darkSteel} castShadow>
-        <cylinderGeometry args={[0.013, 0.012, 0.04, 12]} />
-      </mesh>
-
-      {/* 5. Tangent Rear Sight */}
-      <mesh position={[0, 0.044, -0.13]} material={steel} castShadow>
-        <boxGeometry args={[0.026, 0.022, 0.042]} />
-      </mesh>
-      <mesh position={[0, 0.052, -0.125]} rotation={[-0.08, 0, 0]} material={darkSteel}>
-        <boxGeometry args={[0.018, 0.006, 0.048]} />
-      </mesh>
-
-      {/* 6. Iconic Curved 30-round AK Banana Magazine */}
-      <group ref={magRef}>
-        {Array.from({ length: 6 }).map((_, i) => {
-          const t = i / 5;
-          const angle = -0.22 + t * 0.52;
-          return (
-            <mesh
-              key={i}
-              position={[0, -0.045 - t * 0.17, -0.04 - t * 0.065]}
-              rotation={[angle, 0, 0]}
-              material={bakelite}
-              castShadow
-            >
-              <boxGeometry args={[0.032, 0.05, 0.058]} />
-            </mesh>
-          );
-        })}
-      </group>
-
-      {/* 7. Pistol Grip & Trigger Assembly */}
-      <mesh position={[0, -0.08, 0.08]} rotation={[-0.32, 0, 0]} material={bakelite} castShadow>
-        <boxGeometry args={[0.032, 0.115, 0.046]} />
-      </mesh>
-
-      <mesh
-        position={[0, -0.044, 0.038]}
-        rotation={[0, Math.PI / 2, Math.PI]}
-        material={darkSteel}
-      >
-        <torusGeometry args={[0.024, 0.003, 8, 16, Math.PI]} />
-      </mesh>
-
-      <mesh position={[0, -0.044, 0.038]} rotation={[0.25, 0, 0]} material={steel}>
-        <boxGeometry args={[0.004, 0.018, 0.008]} />
-      </mesh>
-
-      {/* 8. Classic Solid Wooden Stock */}
-      <mesh position={[0, -0.02, 0.28]} rotation={[-0.08, 0, 0]} material={wood} castShadow>
-        <boxGeometry args={[0.04, 0.09, 0.3]} />
-      </mesh>
-
-      <mesh position={[0, -0.03, 0.43]} material={darkSteel} castShadow>
-        <boxGeometry args={[0.042, 0.095, 0.014]} />
-      </mesh>
-
-      {/* 9. Right-side Bolt Carrier / Charging Handle */}
-      <mesh position={[0.034, 0.018, -0.03]} rotation={[0, 0, Math.PI / 2]} material={steel}>
-        <cylinderGeometry args={[0.005, 0.006, 0.03, 8]} />
-      </mesh>
+    <group ref={group}>
+      <primitive object={scene} />
     </group>
   );
 }
 
-/* ================================================================== */
-/* Anatomical FPS Arms Rigging                                        */
-/* ================================================================== */
-
+/* Backwards compatibility stubs: the AK-47 model includes both rigged arms/hands */
 export function RightArm() {
-  const skin = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#c48e6c",
-        roughness: 0.72,
-        metalness: 0.0,
-      }),
-    [],
-  );
-
-  const sleeve = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#3f4634",
-        roughness: 0.92,
-        metalness: 0.0,
-      }),
-    [],
-  );
-
-  return (
-    <group>
-      {/* Forearm Sleeve entering from bottom right */}
-      <mesh
-        position={[0.16, -0.18, 0.22]}
-        quaternion={new THREE.Quaternion().setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
-          new THREE.Vector3(0.33, -0.25, 0.27).normalize(),
-        )}
-        material={sleeve}
-        castShadow
-      >
-        <cylinderGeometry args={[0.046, 0.065, 0.55, 16]} />
-      </mesh>
-
-      {/* Hand Palm wrapped firmly around pistol grip */}
-      <group position={[0.012, -0.075, 0.08]}>
-        <mesh position={[0, 0, 0]} rotation={[-0.32, 0, 0]} material={skin}>
-          <boxGeometry args={[0.044, 0.075, 0.048]} />
-        </mesh>
-
-        {/* 4 Gripping Fingers */}
-        {Array.from({ length: 4 }).map((_, i) => (
-          <mesh
-            key={i}
-            position={[-0.028, 0.02 - i * 0.014, -0.008 - i * 0.004]}
-            rotation={[0, 0.3, Math.PI / 2]}
-            material={skin}
-          >
-            <cylinderGeometry args={[0.006, 0.0065, 0.044, 8]} />
-          </mesh>
-        ))}
-
-        {/* Trigger Index Finger */}
-        <mesh
-          position={[0.004, 0.032, -0.038]}
-          rotation={[1.3, -0.22, 0]}
-          material={skin}
-        >
-          <cylinderGeometry args={[0.006, 0.0065, 0.042, 8]} />
-        </mesh>
-      </group>
-    </group>
-  );
+  return null;
 }
 
-export const LeftArm = forwardRef<THREE.Group, { offset?: [number, number, number] }>(
-  function LeftArm({ offset = [0, 0, 0] }, ref) {
-    const skin = useMemo(
-      () =>
-        new THREE.MeshStandardMaterial({
-          color: "#c48e6c",
-          roughness: 0.72,
-          metalness: 0.0,
-        }),
-      [],
-    );
+export const LeftArm = forwardRef<THREE.Group>(() => {
+  return null;
+});
 
-    const sleeve = useMemo(
-      () =>
-        new THREE.MeshStandardMaterial({
-          color: "#3f4634",
-          roughness: 0.92,
-          metalness: 0.0,
-        }),
-      [],
-    );
-
-    return (
-      <group ref={ref} position={[offset[0], offset[1], offset[2]]}>
-        {/* Forearm Sleeve entering from bottom left */}
-        <mesh
-          position={[-0.16, -0.16, 0.01]}
-          quaternion={new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(0, 1, 0),
-            new THREE.Vector3(-0.38, -0.29, 0.47).normalize(),
-          )}
-          material={sleeve}
-          castShadow
-        >
-          <cylinderGeometry args={[0.046, 0.065, 0.62, 16]} />
-        </mesh>
-
-        {/* Hand Palm cupping bottom of wooden handguard */}
-        <group position={[0, -0.032, -0.22]}>
-          <mesh material={skin}>
-            <boxGeometry args={[0.054, 0.028, 0.09]} />
-          </mesh>
-
-          {/* 4 Fingers wrapping around right side */}
-          {Array.from({ length: 4 }).map((_, i) => (
-            <mesh
-              key={i}
-              position={[0.025, 0.018, -0.025 + i * 0.016]}
-              rotation={[0, 0, -0.35]}
-              material={skin}
-            >
-              <cylinderGeometry args={[0.006, 0.0065, 0.038, 8]} />
-            </mesh>
-          ))}
-
-          {/* Thumb resting over top-left */}
-          <mesh
-            position={[-0.024, 0.044, 0]}
-            rotation={[Math.PI / 2, 0, 0.25]}
-            material={skin}
-          >
-            <cylinderGeometry args={[0.0075, 0.008, 0.042, 8]} />
-          </mesh>
-        </group>
-      </group>
-    );
-  },
-);
-
-// Backward-compatibility aliases for any consumer importing Rifle/Hands
-export const Rifle = AK47;
-export const RightHand = RightArm;
-export const LeftHand = LeftArm;
+useGLTF.preload(MODELS.rifle);

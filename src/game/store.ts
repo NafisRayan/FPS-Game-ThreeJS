@@ -28,6 +28,7 @@ interface GameStore {
   health: number;
   score: number;
   kills: number;
+  headshots: number;
   wave: number;
   enemiesLeft: number;
   ammo: number;
@@ -36,7 +37,9 @@ interface GameStore {
   aiming: boolean;
   bestScore: number;
   damageAt: number;
+  damageAngle: number;
   hitAt: number;
+  lastHitIsHeadshot: boolean;
   banner: string;
   bannerAt: number;
   settings: Settings;
@@ -46,16 +49,16 @@ interface GameStore {
 
   setPhase: (p: GamePhase) => void;
   setIsTouch: (b: boolean) => void;
-  damage: (n: number) => void;
+  damage: (n: number, fromAngle?: number) => void;
   heal: (n: number) => void;
-  addKill: () => void;
+  addKill: (isHeadshot?: boolean) => void;
   addScore: (n: number) => void;
   setEnemiesLeft: (n: number) => void;
   setAmmo: (n: number) => void;
   setReserve: (n: number) => void;
   setReloading: (b: boolean) => void;
   setAiming: (b: boolean) => void;
-  registerHit: () => void;
+  registerHit: (isHeadshot?: boolean) => void;
   showBanner: (t: string) => void;
   setWave: (n: number) => void;
   setAutoQuality: (q: Quality) => void;
@@ -87,6 +90,7 @@ export const useGame = create<GameStore>()((set, get) => ({
   health: 100,
   score: 0,
   kills: 0,
+  headshots: 0,
   wave: 1,
   enemiesLeft: 0,
   ammo: MAG_SIZE,
@@ -95,7 +99,9 @@ export const useGame = create<GameStore>()((set, get) => ({
   aiming: false,
   bestScore: loadBest(),
   damageAt: 0,
+  damageAngle: 0,
   hitAt: 0,
+  lastHitIsHeadshot: false,
   banner: "",
   bannerAt: 0,
   settings: {
@@ -113,11 +119,11 @@ export const useGame = create<GameStore>()((set, get) => ({
     set({ isTouch: b });
   },
 
-  damage: (n) => {
+  damage: (n, fromAngle = 0) => {
     const s = get();
     if (s.phase !== "playing") return;
     const health = Math.max(0, s.health - n);
-    set({ health, damageAt: Date.now() });
+    set({ health, damageAt: Date.now(), damageAngle: fromAngle });
     if (health <= 0) {
       set({ phase: "dead" });
       controlsApi.unlock();
@@ -130,12 +136,18 @@ export const useGame = create<GameStore>()((set, get) => ({
     set({ health: Math.min(100, s.health + n) });
   },
 
-  addKill: () => {
+  addKill: (isHeadshot = false) => {
     const s = get();
-    const score = s.score + 100;
+    const bonus = isHeadshot ? 250 : 100;
+    const score = s.score + bonus;
     const bestScore = Math.max(s.bestScore, score);
     if (bestScore !== s.bestScore) saveBest(bestScore);
-    set({ kills: s.kills + 1, score, bestScore });
+    set({
+      kills: s.kills + 1,
+      headshots: s.headshots + (isHeadshot ? 1 : 0),
+      score,
+      bestScore,
+    });
   },
 
   addScore: (n) => {
@@ -151,7 +163,8 @@ export const useGame = create<GameStore>()((set, get) => ({
   setReserve: (n) => set({ reserve: Math.max(0, n) }),
   setReloading: (b) => set({ reloading: b }),
   setAiming: (b) => set({ aiming: b }),
-  registerHit: () => set({ hitAt: Date.now() }),
+  registerHit: (isHeadshot = false) =>
+    set({ hitAt: Date.now(), lastHitIsHeadshot: isHeadshot }),
   showBanner: (t) => set({ banner: t, bannerAt: Date.now() }),
   setWave: (n) => set({ wave: n }),
   setAutoQuality: (q) => set({ autoQuality: q }),
@@ -164,6 +177,7 @@ export const useGame = create<GameStore>()((set, get) => ({
       health: 100,
       score: 0,
       kills: 0,
+      headshots: 0,
       wave: 1,
       enemiesLeft: 0,
       ammo: MAG_SIZE,
@@ -171,7 +185,9 @@ export const useGame = create<GameStore>()((set, get) => ({
       reloading: false,
       aiming: false,
       damageAt: 0,
+      damageAngle: 0,
       hitAt: 0,
+      lastHitIsHeadshot: false,
       banner: "",
       bannerAt: 0,
     }));

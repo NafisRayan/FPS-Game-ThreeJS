@@ -25,7 +25,8 @@ export const GROUND = {
 };
 
 export const MODELS = {
-  rifle: `${QUAT}/modular_sci_fi_guns_pack/AR_4.glb`,
+  rifle: "/models/ak47.glb",
+  zombie: "/models/zombie.glb",
   handR: `${BJS}/HandMeshes/r_hand_rhs.glb`,
   handL: `${BJS}/HandMeshes/l_hand_rhs.glb`,
   treeA: `${QUAT}/nature_pack/CommonTree_1.glb`,
@@ -33,8 +34,8 @@ export const MODELS = {
   treeC: `${QUAT}/nature_pack/BirchTree_2.glb`,
   bush: `${QUAT}/nature_pack/Bush_1.glb`,
   bushBerry: `${QUAT}/nature_pack/BushBerries_1.glb`,
-  rock: `${QUAT}/nature_pack/Rock_1.glb`,
-  rockMoss: `${QUAT}/nature_pack/Rock_Moss_1.glb`,
+  rock: "/models/rock.glb",
+  rockMoss: "/models/rock.glb",
   grassTuft: `${QUAT}/nature_pack/Grass_Short.glb`,
 } as const;
 

@@ -111,11 +111,11 @@ function FittedModel({
       const src = (
         Array.isArray(m.material) ? m.material[0] : m.material
       ) as THREE.MeshStandardMaterial;
-      const mat = src.clone();
-      mat.roughness = 0.92;
-      mat.metalness = 0.02;
-      mat.envMapIntensity = 0.95;
-      m.material = mat;
+      if (src && src.isMeshStandardMaterial) {
+        const mat = src.clone();
+        mat.envMapIntensity = 1.0;
+        m.material = mat;
+      }
     });
 
     const box = new THREE.Box3().setFromObject(clone);

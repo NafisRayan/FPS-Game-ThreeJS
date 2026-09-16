@@ -1,0 +1,6 @@
+{
+  "name": "OVERGROWTH — 3D FPS",
+  "description": "A browser-based 3D first-person shooter with a real HDRI sky, PBR grass terrain and Rapier physics, built with React Three Fiber.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -11,7 +11,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useRapier } from "@react-three/rapier";
 import { Line } from "@react-three/drei";
 import { useGame, MAG_SIZE } from "./store";
-import { SPAWN, playerPos, enemyApi, controlsApi } from "./refs";
+import { SPAWN, playerPos, enemyApi, controlsApi, weaponAnimApi } from "./refs";
 import { sfx } from "./audio";
 import { input, lookState, playerApi } from "./input";
 import { AK47, RightArm, LeftArm } from "./Viewmodel";
@@ -71,6 +71,15 @@ interface Tracer {
   born: number;
 }
 
+interface Casing {
+  id: number;
+  pos: THREE.Vector3;
+  vel: THREE.Vector3;
+  rot: THREE.Euler;
+  rotVel: THREE.Vector3;
+  born: number;
+}
+
 export function Player() {
   const { world, rapier } = useRapier();
   const camera = useThree((s) => s.camera);
@@ -89,6 +98,8 @@ export function Player() {
   const wasGrounded = useRef(false);
   const bobPhase = useRef(0);
   const lastShot = useRef(0);
+  const lastStep = useRef(0);
+  const prevAiming = useRef(false);
   const recoil = useRef(0);
   const flashUntil = useRef(0);
   const reloadTimeout = useRef<number | null>(null);
@@ -103,6 +114,8 @@ export function Player() {
   const raycaster = useRef(new THREE.Raycaster());
   const [tracers, setTracers] = useState<Tracer[]>([]);
   const tracerId = useRef(0);
+  const casings = useRef<Casing[]>([]);
+  const casingId = useRef(0);
 
   const flashTex = useMemo(() => makeFlashTexture(), []);
 
@@ -157,6 +170,7 @@ export function Player() {
     st.setReloading(true);
     reloadStart.current = performance.now();
     sfx.reload();
+    weaponAnimApi.reload();
     reloadTimeout.current = window.setTimeout(() => {
       const s2 = useGame.getState();
       if (s2.phase === "dead") return;
@@ -199,9 +213,37 @@ export function Player() {
     sfx.shoot();
     recoil.current = 1;
     flashUntil.current = now + 55;
+    weaponAnimApi.fire();
 
     const origin = camera.position;
     camera.getWorldDirection(_aim);
+
+    // Eject spent 7.62x39mm golden brass casing to the right
+    const rightDir = new THREE.Vector3().crossVectors(_aim, UP).normalize();
+    const casingPos = new THREE.Vector3()
+      .copy(origin)
+      .addScaledVector(_aim, 0.35)
+      .addScaledVector(rightDir, 0.16)
+      .addScaledVector(UP, -0.08);
+
+    const casingVel = new THREE.Vector3()
+      .copy(rightDir)
+      .multiplyScalar(2.4 + Math.random() * 0.8)
+      .addScaledVector(UP, 1.6 + Math.random() * 0.5)
+      .addScaledVector(_aim, -0.5 + (Math.random() - 0.5) * 0.3);
+
+    casings.current.push({
+      id: ++casingId.current,
+      pos: casingPos,
+      vel: casingVel,
+      rot: new THREE.Euler(Math.random() * Math.PI, Math.random() * Math.PI, 0),
+      rotVel: new THREE.Vector3(
+        (Math.random() - 0.5) * 30,
+        (Math.random() - 0.5) * 20,
+        (Math.random() - 0.5) * 30,
+      ),
+      born: now,
+    });
 
     // 1) hit distance against static world (walls/crates/floor) via Rapier
     let maxDist = 120;
@@ -240,13 +282,23 @@ export function Player() {
     if (hits.length > 0 && api) {
       const h = hits[0];
       end.copy(h.point);
-      const id = (h.object.userData as { enemyId?: number }).enemyId;
+      const ud = h.object.userData as { enemyId?: number; isHead?: boolean };
+      const id = ud.enemyId;
       if (id !== undefined) {
-        const res = api.hit(id);
+        const objY = h.object.parent?.position.y ?? 0;
+        const isHeadshot = ud.isHead === true || (h.point.y - objY >= 1.2);
+        const res = api.hit(id, isHeadshot);
         if (res !== "none") {
-          st.registerHit();
-          sfx.hit();
-          if (res === "kill") sfx.kill();
+          const isCrit = res === "headshot";
+          st.registerHit(isCrit);
+          if (isCrit) {
+            sfx.headshot();
+          } else {
+            sfx.hit();
+          }
+          if (res === "kill" || (isCrit && res === "headshot")) {
+            sfx.kill();
+          }
         }
       }
     }
@@ -325,6 +377,7 @@ export function Player() {
   /* ------------------------ per-frame logic ---------------------- */
   useFrame((state, dtRaw) => {
     const dt = Math.min(dtRaw, 0.05);
+    const now = performance.now();
     const st = useGame.getState();
     const body = rb.current;
     const controller = ctrl.current;
@@ -332,13 +385,12 @@ export function Player() {
 
     // tracer purge
     if (tracers.length > 0) {
-      const now = performance.now();
       if (now - tracers[0].born > 75)
         setTracers((ts) => ts.filter((t) => now - t.born < 75));
     }
 
     // muzzle flash + light decay (always runs so it cools off in menus too)
-    const lit = performance.now() < flashUntil.current;
+    const lit = now < flashUntil.current;
     if (flashSprite.current) flashSprite.current.visible = lit;
     if (flashLight.current)
       flashLight.current.intensity = lit ? 13 + Math.random() * 8 : 0;
@@ -346,6 +398,10 @@ export function Player() {
     // recoil relaxation
     // Aim-down-sights blending: smoothly transition between 0 (hip) and 1 (ADS)
     const isAiming = (aimingDownSights.current || input.aim) && !st.reloading;
+    if (isAiming !== prevAiming.current) {
+      prevAiming.current = isAiming;
+      sfx.ads(isAiming);
+    }
     aimProgress.current = THREE.MathUtils.lerp(
       aimProgress.current,
       isAiming ? 1 : 0,
@@ -456,12 +512,43 @@ export function Player() {
       nz + _right.z * bobX,
     );
 
+    /* ---------------- footsteps sound ---------------- */
+    if (moving && grounded) {
+      const stepInterval = wantSprint ? 300 : 470;
+      if (now - lastStep.current > stepInterval) {
+        lastStep.current = now;
+        sfx.footstep(wantSprint);
+      }
+    }
+
     /* ------------------------- firing ------------------------- */
     if (firing.current || input.fire) tryShoot();
 
     /* --------------------- gentle regen ----------------------- */
     if (st.health < 100 && Date.now() - st.damageAt > 5000)
       st.heal(9 * dt);
+
+    /* ---------------- spent casings physics ------------------- */
+    const cList = casings.current;
+    for (let i = cList.length - 1; i >= 0; i--) {
+      const c = cList[i];
+      if (now - c.born > 2500) {
+        cList.splice(i, 1);
+        continue;
+      }
+      c.vel.y -= 12 * dt;
+      c.pos.addScaledVector(c.vel, dt);
+      c.rot.x += c.rotVel.x * dt;
+      c.rot.y += c.rotVel.y * dt;
+      c.rot.z += c.rotVel.z * dt;
+      if (c.pos.y < 0.035) {
+        c.pos.y = 0.035;
+        c.vel.y = -c.vel.y * 0.32;
+        c.vel.x *= 0.65;
+        c.vel.z *= 0.65;
+        c.rotVel.multiplyScalar(0.6);
+      }
+    }
 
     /* ------------------- gun view-model pose & animations ------------------- */
     const g = gun.current;
@@ -531,21 +618,21 @@ export function Player() {
       const swayX = active ? Math.cos(bobPhase.current) * 0.007 : 0;
 
       // Interpolate between Hip-Fire and Iron Sight (ADS)
-      // Adjusted to comfortable, prominent FPS positioning
-      const hipPos = { x: 0.16 + swayX, y: -0.16 + sway, z: -0.36 };
-      const adsPos = { x: 0.000, y: -0.068 + sway * 0.2, z: -0.28 };
+      // Hands centered with muzzle slightly towards left for hip-fire; laser-aligned true iron sights in ADS
+      const hipPos = { x: -0.02 + swayX, y: -0.13 + sway, z: -0.08 };
+      const adsPos = { x: 0.000, y: -0.003 + sway * 0.05, z: -0.055 };
 
       const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current) + reloadTransX;
       const posY = THREE.MathUtils.lerp(hipPos.y, adsPos.y, aimProgress.current) + reloadTransY;
-      const posZ = THREE.MathUtils.lerp(hipPos.z, adsPos.z, aimProgress.current) + reloadTransZ + recoil.current * 0.05;
+      const posZ = THREE.MathUtils.lerp(hipPos.z, adsPos.z, aimProgress.current) + reloadTransZ + recoil.current * 0.035;
 
       g.translateX(posX);
       g.translateY(posY);
       g.translateZ(posZ);
-      const hipRotX = recoil.current * 0.06 + reloadRotX;
-      const adsRotX = recoil.current * 0.02 + reloadRotX;
+      const hipRotX = recoil.current * 0.035 + reloadRotX;
+      const adsRotX = recoil.current * 0.012 + reloadRotX;
       const rotX = THREE.MathUtils.lerp(hipRotX, adsRotX, aimProgress.current);
-      const rotY = THREE.MathUtils.lerp(-0.02, 0.0, aimProgress.current) + reloadRotY;
+      const rotY = reloadRotY;
       const rotZ = reloadRotZ;
 
       g.rotateX(rotX);
@@ -559,14 +646,14 @@ export function Player() {
       {/* ---------- weapon view-model: AK-47 + rigged arms ---------- */}
       <group ref={gun}>
         <Suspense fallback={null}>
-          <AK47 magRef={magGroup} />
+          <AK47 magRef={magGroup} aimProgressRef={aimProgress} />
           <RightArm />
           <LeftArm ref={leftArmGroup} />
         </Suspense>
 
-        {/* muzzle anchor, flash sprite & dynamic light aligned with AK-47 muzzle brake */}
-        <object3D ref={muzzle} position={[0, 0.009, -0.6]} />
-        <sprite ref={flashSprite} position={[0, 0.009, -0.62]} visible={false}>
+        {/* muzzle anchor, flash sprite & dynamic light aligned with AK-47 muzzle tip */}
+        <object3D ref={muzzle} position={[0.0, 0.0, -0.865]} />
+        <sprite ref={flashSprite} position={[0.0, 0.0, -0.87]} visible={false}>
           <spriteMaterial
             map={flashTex}
             color="#ffdca8"
@@ -579,7 +666,7 @@ export function Player() {
         </sprite>
         <pointLight
           ref={flashLight}
-          position={[0, 0.07, -0.65]}
+          position={[0.0, 0.0, -0.87]}
           color="#ffc37a"
           intensity={0}
           distance={9}
@@ -598,6 +685,50 @@ export function Player() {
           opacity={0.85}
         />
       ))}
+
+      {/* ---------- spent brass casings ---------- */}
+      <SpentCasingsRenderer casings={casings} />
     </group>
+  );
+}
+
+function SpentCasingsRenderer({ casings }: { casings: React.RefObject<Casing[]> }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const brassMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: "#dfb143",
+        metalness: 0.94,
+        roughness: 0.2,
+      }),
+    [],
+  );
+
+  useFrame(() => {
+    const m = meshRef.current;
+    if (!m) return;
+    const list = casings.current || [];
+    m.count = list.length;
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      dummy.position.copy(c.pos);
+      dummy.rotation.copy(c.rot);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      m.setMatrixAt(i, dummy.matrix);
+    }
+    m.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[undefined, undefined, 32]}
+      frustumCulled={false}
+      material={brassMat}
+    >
+      <cylinderGeometry args={[0.0055, 0.006, 0.024, 8]} />
+    </instancedMesh>
   );
 }
