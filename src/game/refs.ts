@@ -10,6 +10,9 @@ export const SPAWN = new THREE.Vector3(0, 1.35, 8);
 /** Live player capsule-centre position, written by <Player/> each frame. */
 export const playerPos = SPAWN.clone();
 
+/** Live player forward horizontal gaze direction (normalized). */
+export const playerForward = new THREE.Vector3(0, 0, -1);
+
 /** Bridge so DOM buttons can trigger pointer lock / unlock. */
 export const controlsApi = {
   lock: () => {},

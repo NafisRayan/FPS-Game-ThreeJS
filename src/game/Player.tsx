@@ -11,7 +11,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useRapier } from "@react-three/rapier";
 import { Line } from "@react-three/drei";
 import { useGame, MAG_SIZE } from "./store";
-import { SPAWN, playerPos, enemyApi, controlsApi, weaponAnimApi } from "./refs";
+import { SPAWN, playerPos, playerForward, enemyApi, controlsApi, weaponAnimApi } from "./refs";
 import { sfx } from "./audio";
 import { input, lookState, playerApi } from "./input";
 import { AK47, RightArm, LeftArm } from "./Viewmodel";
@@ -470,6 +470,7 @@ export function Player() {
     _fwd.y = 0;
     if (_fwd.lengthSq() < 1e-6) _fwd.set(0, 0, -1);
     _fwd.normalize();
+    playerForward.copy(_fwd);
     _right.crossVectors(_fwd, UP).normalize();
 
     _move.set(0, 0, 0).addScaledVector(_fwd, f).addScaledVector(_right, r);
@@ -618,9 +619,9 @@ export function Player() {
       const swayX = active ? Math.cos(bobPhase.current) * 0.007 : 0;
 
       // Interpolate between Hip-Fire and Iron Sight (ADS)
-      // Hands centered with muzzle slightly towards left for hip-fire; laser-aligned true iron sights in ADS
-      const hipPos = { x: -0.02 + swayX, y: -0.13 + sway, z: -0.08 };
-      const adsPos = { x: 0.000, y: -0.003 + sway * 0.05, z: -0.055 };
+      // Centered with hands slightly towards left for hip-fire; laser-aligned true iron sights in ADS
+      const hipPos = { x: -0.045 + swayX, y: -0.135 + sway, z: -0.08 };
+      const adsPos = { x: 0.000, y: -0.006 + sway * 0.08, z: -0.065 };
 
       const posX = THREE.MathUtils.lerp(hipPos.x, adsPos.x, aimProgress.current) + reloadTransX;
       const posY = THREE.MathUtils.lerp(hipPos.y, adsPos.y, aimProgress.current) + reloadTransY;
@@ -646,15 +647,14 @@ export function Player() {
       {/* ---------- weapon view-model: AK-47 + rigged arms ---------- */}
       <group ref={gun}>
         <Suspense fallback={null}>
-          <AK47 magRef={magGroup} aimProgressRef={aimProgress} />
+          <AK47 magRef={magGroup} />
           <RightArm />
           <LeftArm ref={leftArmGroup} />
         </Suspense>
 
-        {/* muzzle anchor, flash sprite & dynamic light aligned with the real
-            AK-47 muzzle tip (0.034, -0.059, -0.893 in gun-group space) */}
-        <object3D ref={muzzle} position={[0.034, -0.059, -0.893]} />
-        <sprite ref={flashSprite} position={[0.034, -0.059, -0.893]} visible={false}>
+        {/* muzzle anchor, flash sprite & dynamic light aligned with AK-47 muzzle tip */}
+        <object3D ref={muzzle} position={[0.0, -0.046, -0.86]} />
+        <sprite ref={flashSprite} position={[0.0, -0.046, -0.88]} visible={false}>
           <spriteMaterial
             map={flashTex}
             color="#ffdca8"
@@ -667,7 +667,7 @@ export function Player() {
         </sprite>
         <pointLight
           ref={flashLight}
-          position={[0.034, -0.059, -0.893]}
+          position={[0.0, -0.046, -0.88]}
           color="#ffc37a"
           intensity={0}
           distance={9}

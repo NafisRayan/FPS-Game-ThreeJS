@@ -151,6 +151,9 @@ export function Enemies() {
     if (!rt || !rt.active) return;
     rt.active = false;
 
+    // Trigger positional death groan / throat rattle
+    sfx.zombieDeath({ x: rt.pos.x, z: rt.pos.z }, rt.type);
+
     const burstPos = isHeadshot
       ? rt.pos.clone().add(new THREE.Vector3(0, 1.35, 0))
       : rt.pos.clone().add(new THREE.Vector3(0, 0.9, 0));
@@ -199,6 +202,7 @@ export function Enemies() {
     if (st.phase !== "playing") return;
     const rt = rts.get(id);
     const angle = rt ? Math.atan2(rt.pos.x - playerPos.x, rt.pos.z - playerPos.z) : 0;
+    if (rt) sfx.zombieAttack({ x: rt.pos.x, z: rt.pos.z }, type);
     removeEnemy(id, false);
     const dmg = ZOMBIE_PROFILES[type].damage;
     st.damage(dmg, angle);
@@ -220,6 +224,7 @@ export function Enemies() {
           return isHeadshot ? "headshot" : "kill";
         }
         rt.flashUntil = performance.now() + 140;
+        sfx.zombieHurt({ x: rt.pos.x, z: rt.pos.z });
         return isHeadshot ? "headshot" : "hit";
       },
     };
@@ -259,6 +264,9 @@ export function Enemies() {
 
     setActiveSlots(newSlots);
     useGame.getState().setEnemiesLeft(list.length);
+    if (useGame.getState().phase === "playing") {
+      sfx.zombieHordeRoar();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wave]);
 
@@ -300,7 +308,9 @@ function PooledZombie({
 }: PooledZombieProps) {
   const group = useRef<THREE.Group>(null);
   const meshAnchorRef = useRef<THREE.Mesh>(null);
-  const lastGroan = useRef(performance.now() + Math.random() * 4000);
+  const lastGroan = useRef(performance.now() + Math.random() * 3000);
+  const hasAgroedRef = useRef(false);
+  const lastAttackGroan = useRef(0);
   const isFlashingRef = useRef(false);
 
   const { scene, animations } = useGLTF(MODELS.zombie);
@@ -358,6 +368,8 @@ function PooledZombie({
   // When slot data changes, update archetype appearance & speed
   useEffect(() => {
     if (!slotData) return;
+    hasAgroedRef.current = false;
+    lastGroan.current = performance.now() + 1000 + Math.random() * 3000;
     const profile = ZOMBIE_PROFILES[slotData.type];
     const tintColor = new THREE.Color(profile.tint);
 
@@ -426,9 +438,23 @@ function PooledZombie({
         return;
       }
 
-      if (dist < 14 && now - lastGroan.current > 6000 + Math.random() * 5000) {
+      // 1. Sudden aggressive roar/snarl when locking on and closing in
+      if (dist < 12 && !hasAgroedRef.current) {
+        hasAgroedRef.current = true;
+        sfx.zombieAgro({ x: r.pos.x, z: r.pos.z }, slotData.type);
+      }
+
+      // 2. Snapping lunge growl right before striking
+      if (dist < 3.2 && now - lastAttackGroan.current > 3400) {
+        lastAttackGroan.current = now;
+        sfx.zombieAttack({ x: r.pos.x, z: r.pos.z }, slotData.type);
+      }
+
+      // 3. Positional guttural growls & raspy moans (frequency ramps up closer to player)
+      const interval = dist < 6 ? 2600 : dist < 12 ? 4000 : 6200;
+      if (dist < 22 && now - lastGroan.current > interval + Math.random() * 2800) {
         lastGroan.current = now;
-        sfx.zombieGroan(slotData.type === "tank" ? 0.72 : slotData.type === "runner" ? 1.35 : 1.0);
+        sfx.zombieGroan({ x: r.pos.x, z: r.pos.z }, slotData.type);
       }
 
       if (dist > 0.001) {
